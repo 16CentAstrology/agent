@@ -24,10 +24,13 @@ RUN mkdir -p /buildkite/builds /buildkite/hooks /buildkite/plugins \
     && curl -Lfs -o /usr/local/bin/ssh-env-config.sh https://raw.githubusercontent.com/buildkite/docker-ssh-env-config/master/ssh-env-config.sh \
     && chmod +x /usr/local/bin/ssh-env-config.sh
 
+# support for docker buildx multi-arch
 ARG TARGETARCH
 ARG TARGETOS
+ARG BINARY="./buildkite-agent${TARGETOS:+-${TARGETOS}}${TARGETARCH:+-${TARGETARCH}}"
+
 COPY ./buildkite-agent.cfg /buildkite/buildkite-agent.cfg
-COPY ./buildkite-agent-$TARGETOS-$TARGETARCH /usr/local/bin/buildkite-agent
+COPY ${BINARY} /usr/local/bin/buildkite-agent
 COPY ./entrypoint.sh /usr/local/bin/buildkite-agent-entrypoint
 
 VOLUME /buildkite
