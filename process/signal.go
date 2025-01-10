@@ -4,19 +4,26 @@
 package process
 
 import (
-	"fmt"
+	"strconv"
 	"syscall"
 
 	"golang.org/x/sys/unix"
 )
 
+// setupProcessGroup causes the process to be run in its own process group
+// This is useful for sending signals to the process and all its children that
+// won't be sent to the bootstrap process.
 func (p *Process) setupProcessGroup() {
-	// See https://github.com/kr/pty/issues/35 for context
-	if !p.conf.PTY {
-		p.command.SysProcAttr = &syscall.SysProcAttr{
-			Setpgid: true,
-			Pgid:    0,
-		}
+	// PTY mode already creates a process group, using setsid instead of setpgid
+	// Attempting to do so again will cause errors.
+	// See https://github.com/creack/pty/issues/35#issuecomment-147947212 for more details.
+	if p.conf.PTY {
+		return
+	}
+
+	p.command.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+		Pgid:    0,
 	}
 }
 
@@ -26,11 +33,15 @@ func (p *Process) postStart() error {
 }
 
 func (p *Process) terminateProcessGroup() error {
+	// Note: terminateProcessGroup is called from within p.Terminate, which
+	// holds p.mu.
 	p.logger.Debug("[Process] Sending signal SIGKILL to PGID: %d", p.pid)
 	return syscall.Kill(-p.pid, syscall.SIGKILL)
 }
 
 func (p *Process) interruptProcessGroup() error {
+	// Note: interruptProcessGroup is called from within p.Interrupt, which
+	// holds p.mu.
 	intSignal := p.conf.InterruptSignal
 
 	// TODO: this should be SIGINT, but will be a breaking change
@@ -51,7 +62,7 @@ func GetPgid(pid int) (int, error) {
 func SignalString(s syscall.Signal) string {
 	name := unix.SignalName(s)
 	if name == "" {
-		return fmt.Sprintf("%d", int(s))
+		return strconv.Itoa(int(s))
 	}
 	return name
 }

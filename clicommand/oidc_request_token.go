@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/buildkite/agent/v3/api"
-	"github.com/buildkite/agent/v3/cliconfig"
 	"github.com/buildkite/roko"
 	"github.com/urfave/cli"
 )
@@ -17,6 +15,9 @@ type OIDCTokenConfig struct {
 	Audience string `cli:"audience"`
 	Lifetime int    `cli:"lifetime"`
 	Job      string `cli:"job"      validate:"required"`
+	// TODO: enumerate possible values, perhaps by adding a link to the documentation
+	Claims         []string `cli:"claim"           normalize:"list"`
+	AWSSessionTags []string `cli:"aws-session-tag" normalize:"list"`
 
 	// Global flags
 	Debug       bool     `cli:"debug"`
@@ -33,23 +34,24 @@ type OIDCTokenConfig struct {
 }
 
 const (
+	backoffSeconds       = 2
+	maxAttempts          = 5
 	oidcTokenDescription = `Usage:
 
-   buildkite-agent oidc request-token [options...]
+    buildkite-agent oidc request-token [options...]
 
 Description:
-   Requests and prints an OIDC token from Buildkite that claims the Job ID
-   (amongst other things) and the specified audience. If no audience is
-   specified, the endpoint's default audience will be claimed.
+
+Requests and prints an OIDC token from Buildkite that claims the Job ID
+(amongst other things) and the specified audience. If no audience is
+specified, the endpoint's default audience will be claimed.
 
 Example:
-   $ buildkite-agent oidc request-token --audience sts.amazonaws.com
 
-   Requests and prints an OIDC token from Buildkite that claims the Job ID
-   (amongst other things) and the audience "sts.amazonaws.com".
-`
-	backoffSeconds = 2
-	maxAttempts    = 5
+    $ buildkite-agent oidc request-token --audience sts.amazonaws.com
+
+Requests and prints an OIDC token from Buildkite that claims the Job ID
+(amongst other things) and the audience "sts.amazonaws.com".`
 )
 
 var OIDCRequestTokenCommand = cli.Command{
@@ -71,6 +73,20 @@ var OIDCRequestTokenCommand = cli.Command{
 			EnvVar: "BUILDKITE_JOB_ID",
 		},
 
+		cli.StringSliceFlag{
+			Name:   "claim",
+			Value:  &cli.StringSlice{},
+			Usage:  "Claims to add to the OIDC token",
+			EnvVar: "BUILDKITE_OIDC_TOKEN_CLAIMS",
+		},
+
+		cli.StringSliceFlag{
+			Name:   "aws-session-tag",
+			Value:  &cli.StringSlice{},
+			Usage:  "Add claims as AWS Session Tags",
+			EnvVar: "BUILDKITE_OIDC_TOKEN_AWS_SESSION_TAGS",
+		},
+
 		// API Flags
 		AgentAccessTokenFlag,
 		EndpointFlag,
@@ -86,66 +102,47 @@ var OIDCRequestTokenCommand = cli.Command{
 	},
 	Action: func(c *cli.Context) error {
 		ctx := context.Background()
-
-		// The configuration will be loaded into this struct
-		cfg := OIDCTokenConfig{}
-
-		loader := cliconfig.Loader{CLI: c, Config: &cfg}
-		warnings, err := loader.Load()
-		if err != nil {
-			fmt.Fprintf(c.App.ErrWriter, "%s\n", err)
-			os.Exit(1)
-		}
-
-		l := CreateLogger(&cfg)
-
-		// Now that we have a logger, log out the warnings that loading config generated
-		for _, warning := range warnings {
-			l.Warn("%s", warning)
-		}
-
-		// Setup any global configuration options
-		done := HandleGlobalFlags(l, cfg)
+		ctx, cfg, l, _, done := setupLoggerAndConfig[OIDCTokenConfig](ctx, c)
 		defer done()
 
 		// Note: if --lifetime is omitted, cfg.Lifetime = 0
 		if cfg.Lifetime < 0 {
-			l.Fatal("Lifetime %d must be a non-negative integer.", cfg.Lifetime)
+			return fmt.Errorf("lifetime %d must be a non-negative integer.", cfg.Lifetime)
 		}
 
 		// Create the API client
 		client := api.NewClient(l, loadAPIClientConfig(cfg, "AgentAccessToken"))
 
 		// Request the token
-		var token *api.OIDCToken
-
-		if err := roko.NewRetrier(
+		r := roko.NewRetrier(
 			roko.WithMaxAttempts(maxAttempts),
 			roko.WithStrategy(roko.Exponential(backoffSeconds*time.Second, 0)),
-		).DoWithContext(ctx, func(r *roko.Retrier) error {
+		)
+		token, err := roko.DoFunc(ctx, r, func(r *roko.Retrier) (*api.OIDCToken, error) {
 			req := &api.OIDCTokenRequest{
-				Job:      cfg.Job,
-				Audience: cfg.Audience,
-				Lifetime: cfg.Lifetime,
+				Job:            cfg.Job,
+				Audience:       cfg.Audience,
+				Lifetime:       cfg.Lifetime,
+				Claims:         cfg.Claims,
+				AWSSessionTags: cfg.AWSSessionTags,
 			}
 
-			var resp *api.Response
-			token, resp, err = client.OIDCToken(ctx, req)
+			token, resp, err := client.OIDCToken(ctx, req)
 			if resp != nil {
 				switch resp.StatusCode {
 				// Don't bother retrying if the response was one of these statuses
 				case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusUnprocessableEntity:
 					r.Break()
-					return err
+					return nil, err
 				}
 			}
 
 			if err != nil {
 				l.Warn("%s (%s)", err, r)
-				return err
 			}
-			return nil
-		}); err != nil {
+			return token, err
+		})
+		if err != nil {
 			if len(cfg.Audience) > 0 {
 				l.Error("Could not obtain OIDC token for audience %s", cfg.Audience)
 			} else {
@@ -154,7 +151,7 @@ var OIDCRequestTokenCommand = cli.Command{
 			return err
 		}
 
-		fmt.Println(token.Token)
+		_, _ = fmt.Fprintln(c.App.Writer, token.Token)
 		return nil
 	},
 }

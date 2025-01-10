@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/buildkite/agent/v3/api"
+	"github.com/buildkite/agent/v3/core"
 	"github.com/buildkite/agent/v3/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,21 +34,26 @@ func TestDisconnect(t *testing.T) {
 
 	ctx := context.Background()
 
-	client := api.NewClient(logger.Discard, api.Config{
+	apiClient := api.NewClient(logger.Discard, api.Config{
 		Endpoint: server.URL,
 		Token:    "llamas",
 	})
 
 	l := logger.NewBuffer()
+	client := &core.Client{
+		APIClient: apiClient,
+		Logger:    l,
+		RetrySleepFunc: func(time.Duration) {
+			t.Error("unexpected retrier sleep")
+		},
+	}
 
 	worker := &AgentWorker{
 		logger:             l,
 		agent:              nil,
-		apiClient:          client,
+		apiClient:          apiClient,
+		client:             client,
 		agentConfiguration: AgentConfiguration{},
-		retrySleepFunc: func(time.Duration) {
-			t.Error("unexpected retrier sleep")
-		},
 	}
 
 	err := worker.Disconnect(ctx)
@@ -76,24 +83,28 @@ func TestDisconnectRetry(t *testing.T) {
 
 	ctx := context.Background()
 
-	client := api.NewClient(logger.Discard, api.Config{
+	apiClient := api.NewClient(logger.Discard, api.Config{
 		Endpoint: server.URL,
 		Token:    "llamas",
 	})
 
 	l := logger.NewBuffer()
-
 	retrySleeps := make([]time.Duration, 0)
 	retrySleepFunc := func(d time.Duration) {
 		retrySleeps = append(retrySleeps, d)
+	}
+	client := &core.Client{
+		APIClient:      apiClient,
+		Logger:         l,
+		RetrySleepFunc: retrySleepFunc,
 	}
 
 	worker := &AgentWorker{
 		logger:             l,
 		agent:              nil,
-		apiClient:          client,
+		apiClient:          apiClient,
+		client:             client,
 		agentConfiguration: AgentConfiguration{},
-		retrySleepFunc:     retrySleepFunc,
 	}
 
 	err := worker.Disconnect(ctx)
@@ -104,9 +115,49 @@ func TestDisconnectRetry(t *testing.T) {
 
 	require.Equal(t, 4, len(l.Messages))
 	assert.Equal(t, "[info] Disconnecting...", l.Messages[0])
-	assert.Regexp(t, regexp.MustCompile(`\[warn\] POST http.*/disconnect: 500 \(Attempt 1/4`), l.Messages[1])
-	assert.Regexp(t, regexp.MustCompile(`\[warn\] POST http.*/disconnect: 500 \(Attempt 2/4`), l.Messages[2])
+	assert.Regexp(t, regexp.MustCompile(`\[warn\] POST http.*/disconnect: 500 Internal Server Error \(Attempt 1/4`), l.Messages[1])
+	assert.Regexp(t, regexp.MustCompile(`\[warn\] POST http.*/disconnect: 500 Internal Server Error \(Attempt 2/4`), l.Messages[2])
 	assert.Equal(t, "[info] Disconnected", l.Messages[3])
+}
+
+func TestAcquireJobReturnsWrappedError_WhenServerResponds422(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	jobID := "some-uuid"
+
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case fmt.Sprintf("/jobs/%s/acquire", jobID):
+			rw.WriteHeader(http.StatusUnprocessableEntity)
+			return
+
+		default:
+			http.Error(rw, "Not found", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	apiClient := api.NewClient(logger.Discard, api.Config{
+		Endpoint: server.URL,
+		Token:    "llamas",
+	})
+
+	worker := &AgentWorker{
+		logger:    logger.Discard,
+		agent:     nil,
+		apiClient: apiClient,
+		client: &core.Client{
+			APIClient: apiClient,
+			Logger:    logger.Discard,
+		},
+		agentConfiguration: AgentConfiguration{},
+	}
+
+	err := worker.AcquireAndRunJob(ctx, jobID)
+	if !errors.Is(err, core.ErrJobAcquisitionRejected) {
+		t.Fatalf("expected worker.AcquireAndRunJob(%q) = core.ErrJobAcquisitionRejected, got %v", jobID, err)
+	}
 }
 
 func TestAcquireAndRunJobWaiting(t *testing.T) {
@@ -136,33 +187,40 @@ func TestAcquireAndRunJobWaiting(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := api.NewClient(logger.Discard, api.Config{
+	apiClient := api.NewClient(logger.Discard, api.Config{
 		Endpoint: server.URL,
 		Token:    "llamas",
 	})
-
-	l := logger.NewBuffer()
 
 	retrySleeps := []time.Duration{}
 	retrySleepFunc := func(d time.Duration) {
 		retrySleeps = append(retrySleeps, d)
 	}
+	client := &core.Client{
+		APIClient:      apiClient,
+		Logger:         logger.Discard,
+		RetrySleepFunc: retrySleepFunc,
+	}
 
 	worker := &AgentWorker{
-		logger:             l,
+		logger:             logger.Discard,
 		agent:              nil,
-		apiClient:          client,
+		apiClient:          apiClient,
+		client:             client,
 		agentConfiguration: AgentConfiguration{},
-		retrySleepFunc:     retrySleepFunc,
 	}
 
 	err := worker.AcquireAndRunJob(ctx, "waitinguuid")
 	assert.ErrorContains(t, err, "423")
 
-	// the last Retry-After is not recorded as the retries loop exits before using it
-	exptectedSleeps := make([]time.Duration, 0, 9)
-	for d := 1; d <= 1<<8; d *= 2 {
-		exptectedSleeps = append(exptectedSleeps, time.Duration(d)*time.Second)
+	if errors.Is(err, core.ErrJobAcquisitionRejected) {
+		t.Fatalf("expected worker.AcquireAndRunJob(%q) not to be core.ErrJobAcquisitionRejected, but it was: %v", "waitinguuid", err)
 	}
-	assert.Equal(t, exptectedSleeps, retrySleeps)
+
+	// the last Retry-After is not recorded as the retries loop exits before using it
+	expectedSleeps := make([]time.Duration, 0, 6)
+	for d := 1; d <= 1<<5; d *= 2 {
+		expectedSleeps = append(expectedSleeps, time.Duration(d)*time.Second)
+	}
+	assert.Equal(t, expectedSleeps, retrySleeps)
 }

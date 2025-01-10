@@ -16,7 +16,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/buildkite/agent/v3/internal/experiments"
 	"github.com/buildkite/agent/v3/logger"
+	"golang.org/x/term"
 )
 
 const (
@@ -43,6 +45,16 @@ var signalMap = map[string]Signal{
 	"SIGTERM": SIGTERM,
 }
 
+var ErrNotWaitStatus = errors.New(
+	"unimplemented for systems where exec.ExitError.Sys() is not syscall.WaitStatus",
+)
+
+type WaitStatus interface {
+	ExitStatus() int
+	Signaled() bool
+	Signal() syscall.Signal
+}
+
 func (s Signal) String() string {
 	for k, sig := range signalMap {
 		if sig == s {
@@ -62,27 +74,29 @@ func ParseSignal(sig string) (Signal, error) {
 
 // Configuration for a Process
 type Config struct {
-	PTY             bool
-	Timestamp       bool
-	Path            string
-	Args            []string
-	Env             []string
-	Stdin           io.Reader
-	Stdout          io.Writer
-	Stderr          io.Writer
-	Dir             string
-	InterruptSignal Signal
+	PTY               bool
+	Timestamp         bool
+	Path              string
+	Args              []string
+	Env               []string
+	Stdin             io.Reader
+	Stdout            io.Writer
+	Stderr            io.Writer
+	Dir               string
+	InterruptSignal   Signal
+	SignalGracePeriod time.Duration
 }
 
 // Process is an operating system level process
 type Process struct {
-	waitResult    error
-	status        syscall.WaitStatus
-	pid           int
-	conf          Config
-	logger        logger.Logger
-	command       *exec.Cmd
+	waitResult error
+	status     syscall.WaitStatus
+	conf       Config
+	logger     logger.Logger
+	command    *exec.Cmd
+
 	mu            sync.Mutex
+	pid           int
 	started, done chan struct{}
 
 	winJobHandle uintptr
@@ -98,6 +112,8 @@ func New(l logger.Logger, c Config) *Process {
 
 // Pid is the pid of the running process
 func (p *Process) Pid() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	return p.pid
 }
 
@@ -107,7 +123,7 @@ func (p *Process) WaitResult() error {
 }
 
 // WaitStatus returns the status of the Wait() call
-func (p *Process) WaitStatus() syscall.WaitStatus {
+func (p *Process) WaitStatus() WaitStatus {
 	return p.status
 }
 
@@ -121,10 +137,7 @@ func (p *Process) Run(ctx context.Context) error {
 	p.command = exec.Command(p.conf.Path, p.conf.Args...)
 
 	// Setup the process to create a process group if supported
-	// See https://github.com/kr/pty/issues/35 for context
-	if !p.conf.PTY {
-		p.setupProcessGroup()
-	}
+	p.setupProcessGroup()
 
 	// Configure working dir and fail if it doesn't exist, otherwise
 	// we get confusing errors about fork/exec failing because the file
@@ -157,18 +170,31 @@ func (p *Process) Run(ctx context.Context) error {
 
 	// Toggle between running in a pty
 	if p.conf.PTY {
+		p.logger.Debug("[Process] Running with a PTY")
+
 		// Commands like tput expect a TERM value for a PTY
 		p.command.Env = append(p.command.Env, "TERM="+termType)
 
 		pty, err := StartPTY(p.command)
 		if err != nil {
-			return err
+			return fmt.Errorf("error starting pty: %w", err)
 		}
 
 		// Make sure to close the pty at the end.
 		defer func() { _ = pty.Close() }()
 
+		if experiments.IsEnabled(ctx, experiments.PTYRaw) {
+			p.logger.Debug("[Process] Setting raw mode for PTY %s (fd:%d)", pty.Name(), pty.Fd())
+			// No need to capture/restore old state, because we close the PTY when we're done.
+			_, err = term.MakeRaw(int(pty.Fd()))
+			if err != nil {
+				return fmt.Errorf("error putting PTY into raw mode: %w", err)
+			}
+		}
+
+		p.mu.Lock()
 		p.pid = p.command.Process.Pid
+		p.mu.Unlock()
 
 		// Signal waiting consumers in Started() by closing the started channel
 		close(p.started)
@@ -178,59 +204,78 @@ func (p *Process) Run(ctx context.Context) error {
 		go func() {
 			p.logger.Debug("[Process] Starting to copy PTY to the buffer")
 
-			// Copy the pty to our writer. This will block until it
-			// EOF's or something breaks.
+			// Copy the pty to our writer. This will block until it EOFs or something breaks.
 			_, err = io.Copy(p.conf.Stdout, pty)
-			if e, ok := err.(*os.PathError); ok && e.Err == syscall.EIO {
-				// We can safely ignore this error, because
-				// it's just the PTY telling us that it closed
-				// successfully.  See:
-				// https://github.com/buildkite/agent/pull/34#issuecomment-46080419
-				err = nil
-			}
+			switch {
+			case errors.Is(err, syscall.EIO):
+				// We can safely ignore syscall.EIO errors, at least on linux
+				// because it's just the PTY telling us that it closed
+				// successfully.
+				//
+				// See: https://github.com/buildkite/agent/pull/34#issuecomment-46080419
+				//
+				// We will still log the error to aid debugging on other platforms.
+				p.logger.Debug("[Process] PTY has finished being copied to the buffer: %v", err)
 
-			if err != nil {
-				p.logger.Error("[Process] PTY output copy failed with error: %T: %v", err, err)
-			} else {
+			case err == nil:
 				p.logger.Debug("[Process] PTY has finished being copied to the buffer")
+
+			default:
+				p.logger.Error("[Process] PTY output copy failed with error: %T: %v", err, err)
 			}
 
 			waitGroup.Done()
 		}()
 	} else {
+		p.logger.Debug("[Process] Running without a PTY")
+
 		p.command.Stdin = p.conf.Stdin
 		p.command.Stdout = p.conf.Stdout
 		p.command.Stderr = p.conf.Stderr
 
-		err := p.command.Start()
-		if err != nil {
-			return err
+		if err := p.command.Start(); err != nil {
+			return fmt.Errorf("error starting command: %w", err)
 		}
+
 		if err := p.postStart(); err != nil {
 			p.logger.Error("[Process] postStart failed: %v", err)
 		}
+
+		p.mu.Lock()
 		p.pid = p.command.Process.Pid
+		p.mu.Unlock()
 
 		// Signal waiting consumers in Started() by closing the started channel
 		close(p.started)
 	}
 
 	// When the context finishes, terminate the process
-	if ctx != nil {
-		go func() {
-			select {
-			case <-ctx.Done():
-				p.logger.Debug("[Process] Context done, terminating")
-				if err := p.Terminate(); err != nil {
-					p.logger.Debug("[Process] Failed terminate: %v", err)
-				}
-				return
+	go func() {
+		if ctx == nil {
+			return
+		}
 
-			case <-p.Done():
-				return
+		select {
+		case <-p.Done(): // process exited of it's own accord
+			return
+		case <-ctx.Done():
+			p.logger.Debug("[Process] Context done, terminating. pid=%d", p.pid)
+			if err := p.Interrupt(); err != nil {
+				p.logger.Warn("[Process] Failed termination: %v", err)
 			}
-		}()
-	}
+
+			select {
+			case <-p.Done(): // process exited after being interrupted
+				return
+			case <-time.After(p.conf.SignalGracePeriod):
+				p.logger.Warn("[Process] Has not terminated in time, killing. pid=%d", p.pid)
+				if err := p.Terminate(); err != nil {
+					p.logger.Error("[Process] error sending SIGKILL: %s", err)
+					return
+				}
+			}
+		}
+	}()
 
 	p.logger.Info("[Process] Process is running with PID: %d", p.pid)
 
@@ -244,14 +289,16 @@ func (p *Process) Run(ctx context.Context) error {
 
 	// Convert the wait result into a native WaitStatus
 	if p.waitResult != nil {
-		if err, ok := p.waitResult.(*exec.ExitError); ok {
-			if s, ok := err.Sys().(syscall.WaitStatus); ok {
-				p.status = s
-			} else {
-				return fmt.Errorf("Unimplemented for system where exec.ExitError.Sys() is not syscall.WaitStatus.")
-			}
-		} else {
-			return fmt.Errorf("Unexpected error type %T", p.waitResult)
+		exitErr := new(exec.ExitError)
+		if !errors.As(p.waitResult, &exitErr) {
+			return fmt.Errorf("unexpected error type %T: %w", p.waitResult, p.waitResult)
+		}
+
+		switch ws := exitErr.Sys().(type) {
+		case syscall.WaitStatus: // posix
+			p.status = ws
+		default: // not-posix
+			return ErrNotWaitStatus
 		}
 	}
 
@@ -300,6 +347,10 @@ func (p *Process) Started() <-chan struct{} {
 
 // Interrupt the process on platforms that support it, terminate otherwise
 func (p *Process) Interrupt() error {
+	if p == nil {
+		return nil
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -323,6 +374,10 @@ func (p *Process) Interrupt() error {
 
 // Terminate the process
 func (p *Process) Terminate() error {
+	if p == nil {
+		return nil
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -336,16 +391,16 @@ func (p *Process) Terminate() error {
 
 func timeoutWait(waitGroup *sync.WaitGroup) error {
 	// Make a chanel that we'll use as a timeout
-	c := make(chan int, 1)
+	ch := make(chan struct{})
 
 	// Start waiting for the routines to finish
 	go func() {
 		waitGroup.Wait()
-		c <- 1
+		close(ch)
 	}()
 
 	select {
-	case _ = <-c:
+	case <-ch:
 		return nil
 	case <-time.After(10 * time.Second):
 		return errors.New("Timeout")

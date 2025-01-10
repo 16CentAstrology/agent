@@ -6,49 +6,48 @@ import (
 	"io"
 	"os"
 
-	"github.com/buildkite/agent/v3/agent"
 	"github.com/buildkite/agent/v3/api"
-	"github.com/buildkite/agent/v3/cliconfig"
+	"github.com/buildkite/agent/v3/internal/artifact"
 	"github.com/buildkite/agent/v3/logger"
 	"github.com/urfave/cli"
 )
 
-var ShasumHelpDescription = `Usage:
+const shasumHelpDescription = `Usage:
 
-   buildkite-agent artifact shasum [options...]
+    buildkite-agent artifact shasum [options...]
 
 Description:
 
-   Prints the SHA-1 or SHA-256 hash for the single artifact specified by a
-   search query.
+Prints the SHA-1 or SHA-256 hash for the single artifact specified by a
+search query.
 
-   The hash is fetched from Buildkite's API, having been generated client-side
-   by the agent during artifact upload.
+The hash is fetched from Buildkite's API, having been generated client-side
+by the agent during artifact upload.
 
-   A search query that does not match exactly one artifact results in an error.
+A search query that does not match exactly one artifact results in an error.
 
-   Note: You need to ensure that your search query is surrounded by quotes if
-   using a wild card as the built-in shell path globbing will provide files,
-   which will break the download.
+Note: You need to ensure that your search query is surrounded by quotes if
+using a wild card as the built-in shell path globbing will provide files,
+which will break the download.
 
 Example:
 
-   $ buildkite-agent artifact shasum "pkg/release.tar.gz" --build xxx
+    $ buildkite-agent artifact shasum "pkg/release.tar.gz" --build xxx
 
-   This will search for all files in the build with path "pkg/release.tar.gz",
-   and if exactly one match is found, the SHA-1 hash generated during upload
-   is printed.
+This will search for all files in the build with path "pkg/release.tar.gz",
+and if exactly one match is found, the SHA-1 hash generated during upload
+is printed.
 
-   If you would like to target artifacts from a specific build step, you can do
-   so by using the --step argument.
+If you would like to target artifacts from a specific build step, you can do
+so by using the --step argument.
 
-   $ buildkite-agent artifact shasum "pkg/release.tar.gz" --step "release" --build xxx
+    $ buildkite-agent artifact shasum "pkg/release.tar.gz" --step "release" --build xxx
 
-   You can also use the step's job ID (provided by the environment variable $BUILDKITE_JOB_ID)
+You can also use the step's job ID (provided by the environment variable $BUILDKITE_JOB_ID)
 
-   The --sha256 argument requests SHA-256 instead of SHA-1; this is only
-   available for artifacts uploaded since SHA-256 support was added to the
-   agent.`
+The ′--sha256′ argument requests SHA-256 instead of SHA-1; this is only
+available for artifacts uploaded since SHA-256 support was added to the
+agent.`
 
 type ArtifactShasumConfig struct {
 	Query              string `cli:"arg:0" label:"artifact search query" validate:"required"`
@@ -74,7 +73,7 @@ type ArtifactShasumConfig struct {
 var ArtifactShasumCommand = cli.Command{
 	Name:        "shasum",
 	Usage:       "Prints the SHA-1 hash for a single artifact specified by a search query",
-	Description: ShasumHelpDescription,
+	Description: shasumHelpDescription,
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "sha256",
@@ -110,42 +109,25 @@ var ArtifactShasumCommand = cli.Command{
 		ExperimentsFlag,
 		ProfileFlag,
 	},
-	Action: func(c *cli.Context) {
+	Action: func(c *cli.Context) error {
 		ctx := context.Background()
-
-		// The configuration will be loaded into this struct
-		cfg := ArtifactShasumConfig{}
-
-		loader := cliconfig.Loader{CLI: c, Config: &cfg}
-		warnings, err := loader.Load()
-		if err != nil {
-			fmt.Printf("%s", err)
-			os.Exit(1)
-		}
-
-		l := CreateLogger(&cfg)
-
-		// Now that we have a logger, log out the warnings that loading config generated
-		for _, warning := range warnings {
-			l.Warn("%s", warning)
-		}
-
-		// Setup any global configuration options
-		done := HandleGlobalFlags(l, cfg)
+		ctx, cfg, l, _, done := setupLoggerAndConfig[ArtifactShasumConfig](ctx, c)
 		defer done()
-
-		if err := searchAndPrintShaSum(ctx, cfg, l, os.Stdout); err != nil {
-			l.Fatal(err.Error())
-		}
+		return searchAndPrintShaSum(ctx, cfg, l, os.Stdout)
 	},
 }
 
-func searchAndPrintShaSum(ctx context.Context, cfg ArtifactShasumConfig, l logger.Logger, stdout io.Writer) error {
+func searchAndPrintShaSum(
+	ctx context.Context,
+	cfg ArtifactShasumConfig,
+	l logger.Logger,
+	stdout io.Writer,
+) error {
 	// Create the API client
 	client := api.NewClient(l, loadAPIClientConfig(cfg, "AgentAccessToken"))
 
 	// Find the artifact we want to show the SHASUM for
-	searcher := agent.NewArtifactSearcher(l, client, cfg.Build)
+	searcher := artifact.NewSearcher(l, client, cfg.Build)
 	artifacts, err := searcher.Search(ctx, cfg.Query, cfg.Step, cfg.IncludeRetriedJobs, false)
 	if err != nil {
 		return fmt.Errorf("Error searching for artifacts: %s", err)
@@ -172,5 +154,6 @@ func searchAndPrintShaSum(ctx context.Context, cfg ArtifactShasumConfig, l logge
 		}
 		fmt.Fprintln(stdout, sha)
 	}
+
 	return nil
 }
