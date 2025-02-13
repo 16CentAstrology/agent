@@ -3,50 +3,48 @@ package clicommand
 import (
 	"context"
 	"fmt"
-	"os"
 
-	"github.com/buildkite/agent/v3/agent"
 	"github.com/buildkite/agent/v3/api"
-	"github.com/buildkite/agent/v3/cliconfig"
+	"github.com/buildkite/agent/v3/internal/artifact"
 	"github.com/urfave/cli"
 )
 
-var DownloadHelpDescription = `Usage:
+const downloadHelpDescription = `Usage:
 
-   buildkite-agent artifact download [options] <query> <destination>
+    buildkite-agent artifact download [options] <query> <destination>
 
 Description:
 
-   Downloads artifacts matching <query> from Buildkite to <destination>
-   directory on the local machine.
+Downloads artifacts matching <query> from Buildkite to <destination>
+directory on the local machine.
 
-   Note: You need to ensure that your search query is surrounded by quotes if
-   using a wild card as the built-in shell path globbing will expand the wild
-   card and break the query.
+Note: You need to ensure that your search query is surrounded by quotes if
+using a wild card as the built-in shell path globbing will expand the wild
+card and break the query.
 
-   If the last path component of <destination> matches the first path component
-   of your <query>, the last component of <destination> is dropped from the
-   final path. For example, a query of 'app/logs/*' with a destination of
-   'foo/app' will write any matched artifact files to 'foo/app/logs/', relative
-   to the current working directory.
+If the last path component of <destination> matches the first path component
+of your <query>, the last component of <destination> is dropped from the
+final path. For example, a query of 'app/logs/*' with a destination of
+'foo/app' will write any matched artifact files to 'foo/app/logs/', relative
+to the current working directory.
 
-   You can also change working directory to the intended destination and use a
-   <destination> of '.' to always create a directory hierarchy matching the
-   artifact paths.
+You can also change working directory to the intended destination and use a
+<destination> of '.' to always create a directory hierarchy matching the
+artifact paths.
 
 Example:
 
-   $ buildkite-agent artifact download "pkg/*.tar.gz" . --build xxx
+    $ buildkite-agent artifact download "pkg/*.tar.gz" . --build xxx
 
-   This will search across all the artifacts for the build with files that match that part.
-   The first argument is the search query, and the second argument is the download destination.
+This will search across all the artifacts for the build with files that match that part.
+The first argument is the search query, and the second argument is the download destination.
 
-   If you're trying to download a specific file, and there are multiple artifacts from different
-   jobs, you can target the particular job you want to download the artifact from:
+If you're trying to download a specific file, and there are multiple artifacts from different
+jobs, you can target the particular job you want to download the artifact from:
 
-   $ buildkite-agent artifact download "pkg/*.tar.gz" . --step "tests" --build xxx
+    $ buildkite-agent artifact download "pkg/*.tar.gz" . --step "tests" --build xxx
 
-   You can also use the step's jobs id (provided by the environment variable $BUILDKITE_JOB_ID)`
+You can also use the step's jobs id (provided by the environment variable $BUILDKITE_JOB_ID)`
 
 type ArtifactDownloadConfig struct {
 	Query              string `cli:"arg:0" label:"artifact search query" validate:"required"`
@@ -64,6 +62,7 @@ type ArtifactDownloadConfig struct {
 
 	// API config
 	DebugHTTP        bool   `cli:"debug-http"`
+	TraceHTTP        bool   `cli:"trace-http"`
 	AgentAccessToken string `cli:"agent-access-token" validate:"required"`
 	Endpoint         string `cli:"endpoint" validate:"required"`
 	NoHTTP2          bool   `cli:"no-http2"`
@@ -72,12 +71,12 @@ type ArtifactDownloadConfig struct {
 var ArtifactDownloadCommand = cli.Command{
 	Name:        "download",
 	Usage:       "Downloads artifacts from Buildkite to the local machine",
-	Description: DownloadHelpDescription,
+	Description: downloadHelpDescription,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  "step",
 			Value: "",
-			Usage: "Scope the search to a particular step by using either its name or job ID",
+			Usage: "Scope the search to a particular step. Can be the step's key or label, or a Job ID",
 		},
 		cli.StringFlag{
 			Name:   "build",
@@ -96,6 +95,7 @@ var ArtifactDownloadCommand = cli.Command{
 		EndpointFlag,
 		NoHTTP2Flag,
 		DebugHTTPFlag,
+		TraceHTTPFlag,
 
 		// Global flags
 		NoColorFlag,
@@ -104,46 +104,31 @@ var ArtifactDownloadCommand = cli.Command{
 		ExperimentsFlag,
 		ProfileFlag,
 	},
-	Action: func(c *cli.Context) {
+	Action: func(c *cli.Context) error {
 		ctx := context.Background()
-
-		// The configuration will be loaded into this struct
-		cfg := ArtifactDownloadConfig{}
-
-		loader := cliconfig.Loader{CLI: c, Config: &cfg}
-		warnings, err := loader.Load()
-		if err != nil {
-			fmt.Printf("%s", err)
-			os.Exit(1)
-		}
-
-		l := CreateLogger(&cfg)
-
-		// Now that we have a logger, log out the warnings that loading config generated
-		for _, warning := range warnings {
-			l.Warn("%s", warning)
-		}
-
-		// Setup any global configuration options
-		done := HandleGlobalFlags(l, cfg)
+		ctx, cfg, l, _, done := setupLoggerAndConfig[ArtifactDownloadConfig](ctx, c)
 		defer done()
 
 		// Create the API client
 		client := api.NewClient(l, loadAPIClientConfig(cfg, "AgentAccessToken"))
 
 		// Setup the downloader
-		downloader := agent.NewArtifactDownloader(l, client, agent.ArtifactDownloaderConfig{
+		downloader := artifact.NewDownloader(l, client, artifact.DownloaderConfig{
 			Query:              cfg.Query,
 			Destination:        cfg.Destination,
 			BuildID:            cfg.Build,
 			Step:               cfg.Step,
 			IncludeRetriedJobs: cfg.IncludeRetriedJobs,
 			DebugHTTP:          cfg.DebugHTTP,
+			TraceHTTP:          cfg.TraceHTTP,
+			DisableHTTP2:       cfg.NoHTTP2,
 		})
 
 		// Download the artifacts
 		if err := downloader.Download(ctx); err != nil {
-			l.Fatal("Failed to download artifacts: %s", err)
+			return fmt.Errorf("failed to download artifacts: %w", err)
 		}
+
+		return nil
 	},
 }

@@ -1,35 +1,8 @@
 # syntax=docker/dockerfile:1.4
 
-FROM ubuntu:20.04
-
+FROM public.ecr.aws/buildkite/agent-base:ubuntu-focal@sha256:fc15009aca9895cb8a3528c8f09d85840b83dff81f776825b24f29cab7fca028
 ARG TARGETOS
 ARG TARGETARCH
-
-ENV DEBIAN_FRONTEND=noninteractive
-ENV DOCKER_COMPOSE_VERSION=1.27.4
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    apt-transport-https \
-    bash \
-    ca-certificates \
-    curl \
-    git \
-    gnupg-agent \
-    jq \
-    openssh-client \
-    perl \
-    python \
-    python3-pip \
-    rsync \
-    software-properties-common \
-    tini \
-    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add - \
-    && add-apt-repository \
-    "deb [arch=$TARGETARCH] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip3 install docker-compose==$DOCKER_COMPOSE_VERSION
 
 ENV BUILDKITE_AGENT_CONFIG=/buildkite/buildkite-agent.cfg \
     PATH="/usr/local/bin:${PATH}"

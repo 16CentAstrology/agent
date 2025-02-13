@@ -10,74 +10,178 @@ steps:
     command: ".buildkite/steps/publish-to-s3.sh"
     env:
       CODENAME: "stable"
-    agents:
-      queue: "deploy"
     plugins:
-      - ecr#v2.0.0:
+      - aws-assume-role-with-web-identity:
+          role-arn: arn:aws:iam::032379705303:role/pipeline-buildkite-agent-release-stable
+      - ecr#v2.7.0:
           login: true
           account-ids: "032379705303"
-      - docker#v3.5.0:
+      - docker#v5.8.0:
           image: "032379705303.dkr.ecr.us-east-1.amazonaws.com/deploytools:2022.07"
+          environment:
+            - "AWS_ACCESS_KEY_ID"
+            - "AWS_SECRET_ACCESS_KEY"
+            - "AWS_SESSION_TOKEN"
           propagate-environment: true
+          mount-buildkite-agent: true
 
   - name: ":octocat: :rocket: Create Github Release (if necessary)"
     command: ".buildkite/steps/github-release.sh"
     env:
       CODENAME: "stable"
-    agents:
-      queue: "deploy"
     plugins:
-      - ecr#v2.0.0:
+      - aws-assume-role-with-web-identity:
+          role-arn: arn:aws:iam::032379705303:role/pipeline-buildkite-agent-release-stable
+      - ecr#v2.7.0:
           login: true
           account-ids: "032379705303"
-      - docker#v3.5.0:
+      - docker#v5.8.0:
+          environment:
+            - "AWS_ACCESS_KEY_ID"
+            - "AWS_SECRET_ACCESS_KEY"
+            - "AWS_SESSION_TOKEN"
           image: "032379705303.dkr.ecr.us-east-1.amazonaws.com/deploytools:2022.07"
           propagate-environment: true
+          mount-buildkite-agent: true
 
   - name: ":redhat: Publish RPM Package"
     command: ".buildkite/steps/publish-rpm-package.sh"
     env:
       CODENAME: "stable"
       RPM_S3_BUCKET: "yum.buildkite.com"
-    agents:
-      queue: "deploy"
     plugins:
-      - ecr#v2.0.0:
-          login: true
-          account-ids: "032379705303"
-      - docker#v3.5.0:
-          image: "032379705303.dkr.ecr.us-east-1.amazonaws.com/deploytools:2022.07"
+      - aws-assume-role-with-web-identity:
+          role-arn: arn:aws:iam::032379705303:role/pipeline-buildkite-agent-release-stable
+      - docker#v5.8.0:
+          environment:
+            - "AWS_ACCESS_KEY_ID"
+            - "AWS_SECRET_ACCESS_KEY"
+            - "AWS_SESSION_TOKEN"
+          image: "buildkite/agent:3.55.0-ubuntu"
+          entrypoint: bash
           propagate-environment: true
+          mount-buildkite-agent: true
           volumes:
             - "/yum.buildkite.com"
+    retry:
+      automatic:
+        - exit_status: 1
+          limit: 3
+
+  - group: ":redhat: Publish RPM Package to Buildkite Packages"
+    steps:
+      - name: ":redhat: Publish {{matrix.pkg_arch}} RPM Package to Buildkite Packages"
+        plugins:
+          - publish-to-packages#v2.2.0:
+              artifacts: "rpm/buildkite-agent_*_{{matrix.pkg_arch}}.rpm"
+              registry: "buildkite/agent-rpm"
+              artifact_build_id: "${BUILDKITE_TRIGGERED_FROM_BUILD_ID}"
+              attestations:
+                - "buildkite-agent-linux-{{matrix.go_arch}}.build-attestation.json"
+                - "buildkite-agent-rpm-packages.package-attestation.json"
+        soft_fail: true
+        matrix:
+          setup:
+            go_arch:
+              - "amd64"
+              - "386"
+              - "arm64"
+              - "ppc64"
+              - "ppc64le"
+              - "riscv64"
+            pkg_arch:
+              - "SKIP_FAKE_ARCH"
+          adjustments:
+            - with: { go_arch: "amd64", pkg_arch: "x86_64" }
+            - with: { go_arch: "386", pkg_arch: "i386" }
+            - with: { go_arch: "arm64", pkg_arch: "aarch64" }
+            - with: { go_arch: "ppc64", pkg_arch: "ppc64" }
+            - with: { go_arch: "ppc64le", pkg_arch: "ppc64le" }
+            - with: { go_arch: "riscv64", pkg_arch: "riscv64" }
+            - with: { pkg_arch: "SKIP_FAKE_ARCH" }
+              skip: true
 
   - name: ":debian: Publish Debian Package"
     command: ".buildkite/steps/publish-debian-package.sh"
     env:
       CODENAME: "stable"
       DEB_S3_BUCKET: "apt.buildkite.com/buildkite-agent"
-    agents:
-      queue: "deploy"
     plugins:
-      - ecr#v2.0.0:
+      - aws-assume-role-with-web-identity:
+          role-arn: arn:aws:iam::032379705303:role/pipeline-buildkite-agent-release-stable
+      - ecr#v2.7.0:
           login: true
           account-ids: "032379705303"
-      - docker#v3.5.0:
+      - docker#v5.8.0:
+          environment:
+            - "AWS_ACCESS_KEY_ID"
+            - "AWS_SECRET_ACCESS_KEY"
+            - "AWS_SESSION_TOKEN"
           image: "032379705303.dkr.ecr.us-east-1.amazonaws.com/deploytools:2022.07"
           propagate-environment: true
+          mount-buildkite-agent: true
           tmpfs:
             - "/root/.gnupg"
 
-  - name: ":docker: Publish Docker Images"
-    command: ".buildkite/steps/publish-docker-images.sh"
-    env:
-      CODENAME: "stable"
-    agents:
-      queue: "deploy"
-    plugins:
-      - ecr#v2.0.0:
-          login: true
-          account-ids: "445615400570"
+  - group: ":debian: Publish Debian Package to Buildkite Packages"
+    steps:
+      - name: ":debian: Publish {{matrix.pkg_arch}} Debian Package to Buildkite Packages"
+        plugins:
+          - publish-to-packages#v2.2.0:
+              artifacts: "deb/buildkite-agent_*_{{matrix.pkg_arch}}.deb"
+              registry: "buildkite/agent-deb"
+              artifact_build_id: "${BUILDKITE_TRIGGERED_FROM_BUILD_ID}"
+              attestations:
+                - "buildkite-agent-linux-{{matrix.go_arch}}.build-attestation.json"
+                - "buildkite-agent-debian-packages.package-attestation.json"
+        soft_fail: true
+        matrix:
+          setup:
+            go_arch:
+              - "amd64"
+              - "386"
+              - "arm"
+              - "armhf"
+              - "arm64"
+              - "ppc64"
+              - "ppc64le"
+              - "riscv64"
+            pkg_arch:
+              - "SKIP_FAKE_ARCH"
+          adjustments:
+            - with: { go_arch: "amd64", pkg_arch: "x86_64" }
+            - with: { go_arch: "386", pkg_arch: "i386" }
+            - with: { go_arch: "arm", pkg_arch: "arm" }
+            - with: { go_arch: "armhf", pkg_arch: "armhf" }
+            - with: { go_arch: "arm64", pkg_arch: "arm64" }
+            - with: { go_arch: "ppc64", pkg_arch: "ppc64" }
+            - with: { go_arch: "ppc64le", pkg_arch: "ppc64el" }
+            - with: { go_arch: "riscv64", pkg_arch: "riscv64" }
+            - with: { pkg_arch: "SKIP_FAKE_ARCH" }
+              skip: true
+
+  - group: ":docker: Publish Docker Images"
+    steps:
+      - name: ":docker: Publish Docker Images to {{matrix.registry}}"
+        command: ".buildkite/steps/publish-docker-images.sh"
+        env:
+          CODENAME: "stable"
+          REGISTRY: "{{matrix.registry}}"
+        plugins:
+          - aws-assume-role-with-web-identity:
+              role-arn: arn:aws:iam::032379705303:role/pipeline-buildkite-agent-release-stable
+          - ecr#v2.7.0:
+              login: true
+              account-ids: "445615400570"
+        matrix:
+          setup:
+            registry:
+              - docker.io
+              - ghcr.io
+              - packages.buildkite.com
+          adjustments:
+            - with: { registry: "packages.buildkite.com" }
+              soft_fail: true
 
   - wait
 
@@ -86,12 +190,17 @@ steps:
     artifact_paths: "pkg/*.rb;pkg/*.json"
     env:
       CODENAME: "stable"
-    agents:
-      queue: "deploy"
     plugins:
-      - ecr#v2.0.0:
+      - aws-assume-role-with-web-identity:
+          role-arn: arn:aws:iam::032379705303:role/pipeline-buildkite-agent-release-stable
+      - ecr#v2.7.0:
           login: true
           account-ids: "032379705303"
-      - docker#v3.5.0:
+      - docker#v5.8.0:
+          environment:
+            - "AWS_ACCESS_KEY_ID"
+            - "AWS_SECRET_ACCESS_KEY"
+            - "AWS_SESSION_TOKEN"
           image: "032379705303.dkr.ecr.us-east-1.amazonaws.com/deploytools:2022.07"
           propagate-environment: true
+          mount-buildkite-agent: true
