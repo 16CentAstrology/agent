@@ -3,34 +3,31 @@ package clicommand
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/buildkite/agent/v3/api"
-	"github.com/buildkite/agent/v3/cliconfig"
 	"github.com/buildkite/roko"
 	"github.com/urfave/cli"
 )
 
-var StepGetHelpDescription = `Usage:
+const stepGetHelpDescription = `Usage:
 
-   buildkite-agent step get <attribute> [options...]
+    buildkite-agent step get <attribute> [options...]
 
 Description:
 
-   Retrieve the value of an attribute in a step. If no attribute is passed, the
-   entire step will be returned.
+Retrieve the value of an attribute in a step. If no attribute is passed, the
+entire step will be returned.
 
-   In the event a complex object is returned (an object or an array),
-   you'll need to supply the --format option to tell the agent how it should
-   output the data (currently only JSON is supported).
+In the event a complex object is returned (an object or an array),
+you'll need to supply the --format option to tell the agent how it should
+output the data (currently only JSON is supported).
 
 Example:
 
-   $ buildkite-agent step get "label" --step "key"
-   $ buildkite-agent step get --format json
-   $ buildkite-agent step get "retry" --format json
-   $ buildkite-agent step get "state" --step "my-other-step"`
+    $ buildkite-agent step get "label" --step "key"
+    $ buildkite-agent step get --format json
+    $ buildkite-agent step get "state" --step "my-other-step"`
 
 type StepGetConfig struct {
 	Attribute string `cli:"arg:0" label:"step attribute"`
@@ -55,7 +52,7 @@ type StepGetConfig struct {
 var StepGetCommand = cli.Command{
 	Name:        "get",
 	Usage:       "Get the value of an attribute",
-	Description: StepGetHelpDescription,
+	Description: stepGetHelpDescription,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:   "step",
@@ -89,28 +86,8 @@ var StepGetCommand = cli.Command{
 		ExperimentsFlag,
 		ProfileFlag,
 	},
-	Action: func(c *cli.Context) {
-		ctx := context.Background()
-
-		// The configuration will be loaded into this struct
-		cfg := StepGetConfig{}
-
-		loader := cliconfig.Loader{CLI: c, Config: &cfg}
-		warnings, err := loader.Load()
-		if err != nil {
-			fmt.Printf("%s", err)
-			os.Exit(1)
-		}
-
-		l := CreateLogger(&cfg)
-
-		// Now that we have a logger, log out the warnings that loading config generated
-		for _, warning := range warnings {
-			l.Warn("%s", warning)
-		}
-
-		// Setup any global configuration options
-		done := HandleGlobalFlags(l, cfg)
+	Action: func(c *cli.Context) error {
+		ctx, cfg, l, _, done := setupLoggerAndConfig[StepGetConfig](context.Background(), c)
 		defer done()
 
 		// Create the API client
@@ -124,30 +101,27 @@ var StepGetCommand = cli.Command{
 		}
 
 		// Find the step attribute
-		var resp *api.Response
-		var stepExportResponse *api.StepExportResponse
-		err = roko.NewRetrier(
+		r := roko.NewRetrier(
 			roko.WithMaxAttempts(10),
 			roko.WithStrategy(roko.Constant(5*time.Second)),
-		).DoWithContext(ctx, func(r *roko.Retrier) error {
-			stepExportResponse, resp, err = client.StepExport(ctx, cfg.StepOrKey, stepExportRequest)
+		)
+		stepExportResponse, err := roko.DoFunc(ctx, r, func(r *roko.Retrier) (*api.StepExportResponse, error) {
+			stepExportResponse, resp, err := client.StepExport(ctx, cfg.StepOrKey, stepExportRequest)
 			// Don't bother retrying if the response was one of these statuses
 			if resp != nil && (resp.StatusCode == 401 || resp.StatusCode == 404 || resp.StatusCode == 400) {
 				r.Break()
 			}
 			if err != nil {
 				l.Warn("%s (%s)", err, r)
-				return err
 			}
-			return nil
+			return stepExportResponse, err
 		})
-
-		// Deal with the error if we got one
 		if err != nil {
-			l.Fatal("Failed to get step: %s", err)
+			return fmt.Errorf("failed to get step: %w", err)
 		}
 
 		// Output the value to STDOUT
-		fmt.Print(stepExportResponse.Output)
+		_, err = fmt.Fprintln(c.App.Writer, stepExportResponse.Output)
+		return err
 	},
 }

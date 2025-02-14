@@ -1,2 +1,6 @@
-FROM golang:1.19.4@sha256:660f138b4477001d65324a51fa158c1b868651b44e43f0953bf062e9f38b72f3
+FROM public.ecr.aws/docker/library/golang:1.23.5@sha256:8c10f21bec412f08f73aa7b97ca5ac5f28a39d8a88030ad8a339fd0a781d72b4
 COPY build/ssh.conf /etc/ssh/ssh_config.d/
+
+RUN go install github.com/google/go-licenses@latest
+# Ruby used for polyglot hook integration tests
+RUN apt update && apt install -y ruby

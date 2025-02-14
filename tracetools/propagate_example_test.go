@@ -5,19 +5,15 @@ import (
 	"time"
 
 	"github.com/opentracing/opentracing-go"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/opentracer"
+	"github.com/opentracing/opentracing-go/mocktracer"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
 func ExampleEncodeTraceContext() {
 	// Start and configure the tracer to use the propagator.
-	t := opentracer.New(
-		// These args are just to ensure nothing actually gets sent if the test
-		// platform actually has a DD agent running locally.
-		// This is an unlikely, local, non-default agent address.
-		tracer.WithAgentAddr("10.0.0.1:65534"),
-		tracer.WithLogger(&nullLogger{}),
-	)
+	// A more realistic example would connect to, say, a real DataDog agent
+	// instead of using mocktracer.
+	t := mocktracer.New()
 	opentracing.SetGlobalTracer(t)
 	defer tracer.Stop()
 
@@ -35,7 +31,7 @@ func ExampleEncodeTraceContext() {
 
 		// Now say we want to launch a child process.
 		// Prepare it's env vars. This will be the carrier for the tracing data.
-		if err := EncodeTraceContext(span, childEnv); err != nil {
+		if err := EncodeTraceContext(span, childEnv, CodecGob{}); err != nil {
 			fmt.Println("oops an error for parent process trace injection")
 		}
 		// Now childEnv will contain the encoded data set with the env var key.
@@ -58,7 +54,7 @@ func ExampleEncodeTraceContext() {
 		// Make sure tracing is setup the same way (same env var key)
 		// Normally you'd use os.Environ or similar here (the list of strings is
 		// supported). We're just reusing childEnv for test simplicity.
-		sctx, err := DecodeTraceContext(childEnv)
+		sctx, err := DecodeTraceContext(childEnv, CodecGob{})
 		if err != nil {
 			fmt.Println("oops an error for child process trace extraction")
 		} else {
