@@ -3,30 +3,28 @@ package clicommand
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/buildkite/agent/v3/api"
-	"github.com/buildkite/agent/v3/cliconfig"
 	"github.com/buildkite/roko"
 	"github.com/urfave/cli"
 )
 
-var AnnotationRemoveHelpDescription = `Usage:
+const annotationRemoveHelpDescription = `Usage:
 
-   buildkite-agent annotation remove [arguments...]
+    buildkite-agent annotation remove [arguments...]
 
 Description:
 
-   Remove an existing annotation which was previously published using the
-   buildkite-agent annotate command.
+Remove an existing annotation which was previously published using the
+buildkite-agent annotate command.
 
-   If you leave context blank, it will use the default context.
+If you leave context blank, it will use the default context.
 
 Example:
 
-   $ buildkite-agent annotation remove
-   $ buildkite-agent annotation remove --context "remove-me"`
+    $ buildkite-agent annotation remove
+    $ buildkite-agent annotation remove --context "remove-me"`
 
 type AnnotationRemoveConfig struct {
 	Context string `cli:"context" validate:"required"`
@@ -49,7 +47,7 @@ type AnnotationRemoveConfig struct {
 var AnnotationRemoveCommand = cli.Command{
 	Name:        "remove",
 	Usage:       "Remove an existing annotation from a Buildkite build",
-	Description: AnnotationRemoveHelpDescription,
+	Description: annotationRemoveHelpDescription,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:   "context",
@@ -77,35 +75,16 @@ var AnnotationRemoveCommand = cli.Command{
 		ExperimentsFlag,
 		ProfileFlag,
 	},
-	Action: func(c *cli.Context) {
+	Action: func(c *cli.Context) error {
 		ctx := context.Background()
-
-		// The configuration will be loaded into this struct
-		cfg := AnnotationRemoveConfig{}
-
-		loader := cliconfig.Loader{CLI: c, Config: &cfg}
-		warnings, err := loader.Load()
-		if err != nil {
-			fmt.Printf("%s", err)
-			os.Exit(1)
-		}
-
-		l := CreateLogger(&cfg)
-
-		// Now that we have a logger, log out the warnings that loading config generated
-		for _, warning := range warnings {
-			l.Warn("%s", warning)
-		}
-
-		// Setup any global configuration options
-		done := HandleGlobalFlags(l, cfg)
+		ctx, cfg, l, _, done := setupLoggerAndConfig[AnnotationRemoveConfig](ctx, c)
 		defer done()
 
 		// Create the API client
 		client := api.NewClient(l, loadAPIClientConfig(cfg, "AgentAccessToken"))
 
 		// Retry the removal a few times before giving up
-		err = roko.NewRetrier(
+		if err := roko.NewRetrier(
 			roko.WithMaxAttempts(5),
 			roko.WithStrategy(roko.Constant(1*time.Second)),
 			roko.WithJitter(),
@@ -125,13 +104,12 @@ var AnnotationRemoveCommand = cli.Command{
 				return err
 			}
 			return nil
-		})
-
-		// Show a fatal error if we gave up trying to create the annotation
-		if err != nil {
-			l.Fatal("Failed to remove annotation: %s", err)
+		}); err != nil {
+			return fmt.Errorf("failed to remove annotation: %w", err)
 		}
 
 		l.Debug("Successfully removed annotation")
+
+		return nil
 	},
 }

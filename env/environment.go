@@ -8,14 +8,32 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/puzpuzpuz/xsync/v2"
 )
 
 // Environment is a map of environment variables, with the keys normalized
 // for case-insensitive operating systems
-type Environment map[string]string
+type Environment struct {
+	underlying *xsync.MapOf[string, string]
+}
 
-func New() Environment {
-	return Environment{}
+func New() *Environment {
+	return &Environment{underlying: xsync.NewMapOf[string]()}
+}
+
+func NewWithLength(length int) *Environment {
+	return &Environment{underlying: xsync.NewMapOfPresized[string](length)}
+}
+
+func FromMap(m map[string]string) *Environment {
+	env := &Environment{underlying: xsync.NewMapOfPresized[string](len(m))}
+
+	for k, v := range m {
+		env.Set(k, v)
+	}
+
+	return env
 }
 
 // Split splits an environment variable (in the form "name=value") into the name
@@ -37,8 +55,8 @@ func Split(l string) (name, value string, ok bool) {
 }
 
 // FromSlice creates a new environment from a string slice of KEY=VALUE
-func FromSlice(s []string) Environment {
-	env := make(Environment, len(s))
+func FromSlice(s []string) *Environment {
+	env := NewWithLength(len(s))
 
 	for _, l := range s {
 		if k, v, ok := Split(l); ok {
@@ -49,14 +67,41 @@ func FromSlice(s []string) Environment {
 	return env
 }
 
+// Pair is an environment variable name/value pair.
+type Pair struct{ Name, Value string }
+
+// DumpPairs returns a copy of the environment with all keys normalised.
+func (e *Environment) DumpPairs() []Pair {
+	d := make([]Pair, 0, e.underlying.Size())
+	e.underlying.Range(func(k, v string) bool {
+		d = append(d, Pair{
+			Name:  normalizeKeyName(k),
+			Value: v,
+		})
+		return true
+	})
+	return d
+}
+
+// Dump returns a copy of the environment with all keys normalized
+func (e *Environment) Dump() map[string]string {
+	d := make(map[string]string, e.underlying.Size())
+	e.underlying.Range(func(k, v string) bool {
+		d[normalizeKeyName(k)] = v
+		return true
+	})
+
+	return d
+}
+
 // Get returns a key from the environment
-func (e Environment) Get(key string) (string, bool) {
-	v, ok := e[normalizeKeyName(key)]
+func (e *Environment) Get(key string) (string, bool) {
+	v, ok := e.underlying.Load(normalizeKeyName(key))
 	return v, ok
 }
 
 // Get a boolean value from environment, with a default for empty. Supports true|false, on|off, 1|0
-func (e Environment) GetBool(key string, defaultValue bool) bool {
+func (e *Environment) GetBool(key string, defaultValue bool) bool {
 	v, _ := e.Get(key)
 
 	switch strings.ToLower(v) {
@@ -70,47 +115,54 @@ func (e Environment) GetBool(key string, defaultValue bool) bool {
 }
 
 // Exists returns true/false depending on whether or not the key exists in the env
-func (e Environment) Exists(key string) bool {
-	_, ok := e[normalizeKeyName(key)]
+func (e *Environment) Exists(key string) bool {
+	_, ok := e.underlying.Load(normalizeKeyName(key))
 	return ok
 }
 
 // Set sets a key in the environment
-func (e Environment) Set(key string, value string) string {
-	e[normalizeKeyName(key)] = value
-
-	return value
+func (e *Environment) Set(key string, value string) {
+	e.underlying.Store(normalizeKeyName(key), value)
 }
 
 // Remove a key from the Environment and return its value
-func (e Environment) Remove(key string) string {
+func (e *Environment) Remove(key string) string {
 	value, ok := e.Get(key)
 	if ok {
-		delete(e, normalizeKeyName(key))
+		e.underlying.Delete(normalizeKeyName(key))
 	}
 	return value
 }
 
 // Length returns the length of the environment
-func (e Environment) Length() int {
-	return len(e)
+func (e *Environment) Length() int {
+	return e.underlying.Size()
 }
 
 // Diff returns a new environment with the keys and values from this
 // environment which are different in the other one.
-func (e Environment) Diff(other Environment) Diff {
+func (e *Environment) Diff(other *Environment) Diff {
 	diff := Diff{
 		Added:   make(map[string]string),
 		Changed: make(map[string]DiffPair),
 		Removed: make(map[string]struct{}, 0),
 	}
 
-	for k, v := range e {
+	if other == nil {
+		e.underlying.Range(func(k, _ string) bool {
+			diff.Removed[k] = struct{}{}
+			return true
+		})
+
+		return diff
+	}
+
+	e.underlying.Range(func(k, v string) bool {
 		other, ok := other.Get(k)
 		if !ok {
 			// This environment has added this key to other
 			diff.Added[k] = v
-			continue
+			return true
 		}
 
 		if other != v {
@@ -119,65 +171,68 @@ func (e Environment) Diff(other Environment) Diff {
 				New: v,
 			}
 		}
-	}
 
-	for k := range other {
+		return true
+	})
+
+	other.underlying.Range(func(k, _ string) bool {
 		if _, ok := e.Get(k); !ok {
 			diff.Removed[k] = struct{}{}
 		}
-	}
+
+		return true
+	})
 
 	return diff
 }
 
 // Merge merges another env into this one and returns the result
-func (e Environment) Merge(other Environment) Environment {
-	c := e.Copy()
-
+func (e *Environment) Merge(other *Environment) {
 	if other == nil {
-		return c
+		return
 	}
 
-	for k, v := range other {
-		c.Set(k, v)
-	}
-
-	return c
+	other.underlying.Range(func(k, v string) bool {
+		e.Set(k, v)
+		return true
+	})
 }
 
-func (e Environment) Apply(diff Diff) Environment {
-	c := e.Copy()
-
+func (e *Environment) Apply(diff Diff) {
 	for k, v := range diff.Added {
-		c.Set(k, v)
+		e.Set(k, v)
 	}
 	for k, v := range diff.Changed {
-		c.Set(k, v.New)
+		e.Set(k, v.New)
 	}
 	for k := range diff.Removed {
-		delete(c, k)
+		e.Remove(k)
 	}
-
-	return c
 }
 
 // Copy returns a copy of the env
-func (e Environment) Copy() Environment {
-	c := make(map[string]string)
-
-	for k, v := range e {
-		c[k] = v
+func (e *Environment) Copy() *Environment {
+	if e == nil {
+		return New()
 	}
+
+	c := New()
+
+	e.underlying.Range(func(k, v string) bool {
+		c.Set(k, v)
+		return true
+	})
 
 	return c
 }
 
 // ToSlice returns a sorted slice representation of the environment
-func (e Environment) ToSlice() []string {
+func (e *Environment) ToSlice() []string {
 	s := []string{}
-	for k, v := range e {
+	e.underlying.Range(func(k, v string) bool {
 		s = append(s, k+"="+v)
-	}
+		return true
+	})
 
 	// Ensure they are in a consistent order (helpful for tests)
 	sort.Strings(s)
@@ -185,13 +240,8 @@ func (e Environment) ToSlice() []string {
 	return s
 }
 
-func (e Environment) MarshalJSON() ([]byte, error) {
-	normalised := make(map[string]string, len(e))
-	for k, v := range e {
-		normalised[normalizeKeyName(k)] = v
-	}
-
-	return json.Marshal(normalised)
+func (e *Environment) MarshalJSON() ([]byte, error) {
+	return json.Marshal(e.Dump())
 }
 
 func (e *Environment) UnmarshalJSON(data []byte) error {
@@ -200,7 +250,7 @@ func (e *Environment) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	*e = make(Environment, len(raw))
+	e.underlying = xsync.NewMapOfPresized[string](len(raw))
 	for k, v := range raw {
 		e.Set(k, v)
 	}

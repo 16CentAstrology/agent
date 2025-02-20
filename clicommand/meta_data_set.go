@@ -2,33 +2,37 @@ package clicommand
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/buildkite/agent/v3/api"
-	"github.com/buildkite/agent/v3/cliconfig"
 	"github.com/buildkite/roko"
 	"github.com/urfave/cli"
 )
 
-var MetaDataSetHelpDescription = `Usage:
+const metaDataSetHelpDescription = `Usage:
 
-   buildkite-agent meta-data set <key> [value] [options...]
+    buildkite-agent meta-data set <key> [value] [options...]
 
 Description:
 
-   Set arbitrary data on a build using a basic key/value store.
+Set arbitrary data on a build using a basic key/value store.
 
-   You can supply the value as an argument to the command, or pipe in a file or
-   script output.
+You can supply the value as an argument to the command, or pipe in a file or
+script output.
+
+The value must be a non-empty string, and strings containing only whitespace
+characters are not allowed.
 
 Example:
 
-   $ buildkite-agent meta-data set "foo" "bar"
-   $ buildkite-agent meta-data set "foo" < ./tmp/meta-data-value
-   $ ./script/meta-data-generator | buildkite-agent meta-data set "foo"`
+    $ buildkite-agent meta-data set "foo" "bar"
+    $ buildkite-agent meta-data set "foo" < ./tmp/meta-data-value
+    $ ./script/meta-data-generator | buildkite-agent meta-data set "foo"`
 
 type MetaDataSetConfig struct {
 	Key   string `cli:"arg:0" label:"meta-data key" validate:"required"`
@@ -52,7 +56,7 @@ type MetaDataSetConfig struct {
 var MetaDataSetCommand = cli.Command{
 	Name:        "set",
 	Usage:       "Set data on a build",
-	Description: MetaDataSetHelpDescription,
+	Description: metaDataSetHelpDescription,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:   "job",
@@ -74,28 +78,9 @@ var MetaDataSetCommand = cli.Command{
 		ExperimentsFlag,
 		ProfileFlag,
 	},
-	Action: func(c *cli.Context) {
+	Action: func(c *cli.Context) error {
 		ctx := context.Background()
-
-		// The configuration will be loaded into this struct
-		cfg := MetaDataSetConfig{}
-
-		loader := cliconfig.Loader{CLI: c, Config: &cfg}
-		warnings, err := loader.Load()
-		if err != nil {
-			fmt.Printf("%s", err)
-			os.Exit(1)
-		}
-
-		l := CreateLogger(&cfg)
-
-		// Now that we have a logger, log out the warnings that loading config generated
-		for _, warning := range warnings {
-			l.Warn("%s", warning)
-		}
-
-		// Setup any global configuration options
-		done := HandleGlobalFlags(l, cfg)
+		ctx, cfg, l, _, done := setupLoggerAndConfig[MetaDataSetConfig](ctx, c)
 		defer done()
 
 		// Read the value from STDIN if argument omitted entirely
@@ -104,9 +89,17 @@ var MetaDataSetCommand = cli.Command{
 
 			input, err := io.ReadAll(os.Stdin)
 			if err != nil {
-				l.Fatal("Failed to read from STDIN: %s", err)
+				return fmt.Errorf("failed to read from STDIN: %w", err)
 			}
 			cfg.Value = string(input)
+		}
+
+		if strings.TrimSpace(cfg.Key) == "" {
+			return errors.New("key cannot be empty, or composed of only whitespace characters")
+		}
+
+		if strings.TrimSpace(cfg.Value) == "" {
+			return errors.New("value cannot be empty, or composed of only whitespace characters")
 		}
 
 		// Create the API client
@@ -119,9 +112,10 @@ var MetaDataSetCommand = cli.Command{
 		}
 
 		// Set the meta data
-		err = roko.NewRetrier(
+		if err := roko.NewRetrier(
+			// 10x2 sec -> 2, 3, 5, 8, 13, 21, 34, 55, 89 seconds (total delay: 233 seconds)
 			roko.WithMaxAttempts(10),
-			roko.WithStrategy(roko.Constant(5*time.Second)),
+			roko.WithStrategy(roko.ExponentialSubsecond(2*time.Second)),
 		).DoWithContext(ctx, func(r *roko.Retrier) error {
 			resp, err := client.SetMetaData(ctx, cfg.Job, metaData)
 			if resp != nil && (resp.StatusCode == 401 || resp.StatusCode == 404) {
@@ -132,10 +126,10 @@ var MetaDataSetCommand = cli.Command{
 				return err
 			}
 			return nil
-		})
-
-		if err != nil {
-			l.Fatal("Failed to set meta-data: %s", err)
+		}); err != nil {
+			return fmt.Errorf("failed to set meta-data: %w", err)
 		}
+
+		return nil
 	},
 }

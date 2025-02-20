@@ -8,35 +8,34 @@ import (
 	"time"
 
 	"github.com/buildkite/agent/v3/api"
-	"github.com/buildkite/agent/v3/cliconfig"
 	"github.com/buildkite/roko"
 	"github.com/urfave/cli"
 )
 
-var StepUpdateHelpDescription = `Usage:
+const stepUpdateHelpDescription = `Usage:
 
-   buildkite-agent step update <attribute> <value> [options...]
+    buildkite-agent step update <attribute> <value> [options...]
 
 Description:
 
-   Update an attribute of a step in the build
-	 
-	 Note that step labels are used in commit status updates, so if you change the
-	 label of a running step, you may end up with an 'orphaned' status update
-	 under the old label, as well as new ones using the updated label.
-	 
-	 To avoid orphaned status updates, in your Pipeline Settings > GitHub:
-	 
-	 * Make sure Update commit statuses is not selected. Note that this prevents
-	 	 Buildkite from automatically creating and sending statuses for this pipeline,
-		 meaning you will have to handle all commit statuses through the pipeline.yml
+Update an attribute of a step in the build
+
+Note that step labels are used in commit status updates, so if you change the
+label of a running step, you may end up with an 'orphaned' status update
+under the old label, as well as new ones using the updated label.
+
+To avoid orphaned status updates, in your Pipeline Settings > GitHub:
+
+* Make sure Update commit statuses is not selected. Note that this prevents
+  Buildkite from automatically creating and sending statuses for this pipeline,
+  meaning you will have to handle all commit statuses through the pipeline.yml
 
 Example:
 
-   $ buildkite-agent step update "label" "New Label"
-   $ buildkite-agent step update "label" " (add to end of label)" --append
-   $ buildkite-agent step update "label" < ./tmp/some-new-label
-   $ ./script/label-generator | buildkite-agent step update "label"`
+    $ buildkite-agent step update "label" "New Label"
+    $ buildkite-agent step update "label" " (add to end of label)" --append
+    $ buildkite-agent step update "label" < ./tmp/some-new-label
+    $ ./script/label-generator | buildkite-agent step update "label"`
 
 type StepUpdateConfig struct {
 	Attribute string `cli:"arg:0" label:"attribute" validate:"required"`
@@ -62,7 +61,7 @@ type StepUpdateConfig struct {
 var StepUpdateCommand = cli.Command{
 	Name:        "update",
 	Usage:       "Change the value of an attribute",
-	Description: StepUpdateHelpDescription,
+	Description: stepUpdateHelpDescription,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:   "step",
@@ -95,28 +94,8 @@ var StepUpdateCommand = cli.Command{
 		ExperimentsFlag,
 		ProfileFlag,
 	},
-	Action: func(c *cli.Context) {
-		ctx := context.Background()
-
-		// The configuration will be loaded into this struct
-		cfg := StepUpdateConfig{}
-
-		loader := cliconfig.Loader{CLI: c, Config: &cfg}
-		warnings, err := loader.Load()
-		if err != nil {
-			fmt.Printf("%s", err)
-			os.Exit(1)
-		}
-
-		l := CreateLogger(&cfg)
-
-		// Now that we have a logger, log out the warnings that loading config generated
-		for _, warning := range warnings {
-			l.Warn("%s", warning)
-		}
-
-		// Setup any global configuration options
-		done := HandleGlobalFlags(l, cfg)
+	Action: func(c *cli.Context) error {
+		ctx, cfg, l, _, done := setupLoggerAndConfig[StepUpdateConfig](context.Background(), c)
 		defer done()
 
 		// Read the value from STDIN if argument omitted entirely
@@ -125,7 +104,7 @@ var StepUpdateCommand = cli.Command{
 
 			input, err := io.ReadAll(os.Stdin)
 			if err != nil {
-				l.Fatal("Failed to read from STDIN: %s", err)
+				return fmt.Errorf("failed to read from STDIN: %w", err)
 			}
 			cfg.Value = string(input)
 		}
@@ -148,7 +127,7 @@ var StepUpdateCommand = cli.Command{
 		}
 
 		// Post the change
-		err = roko.NewRetrier(
+		if err := roko.NewRetrier(
 			roko.WithMaxAttempts(10),
 			roko.WithStrategy(roko.Constant(5*time.Second)),
 		).DoWithContext(ctx, func(r *roko.Retrier) error {
@@ -161,10 +140,10 @@ var StepUpdateCommand = cli.Command{
 				return err
 			}
 			return nil
-		})
-
-		if err != nil {
-			l.Fatal("Failed to change step: %s", err)
+		}); err != nil {
+			return fmt.Errorf("failed to change step: %w", err)
 		}
+
+		return nil
 	},
 }

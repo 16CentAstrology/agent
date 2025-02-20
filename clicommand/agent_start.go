@@ -3,53 +3,73 @@ package clicommand
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/buildkite/agent/v3/agent"
 	"github.com/buildkite/agent/v3/api"
-	"github.com/buildkite/agent/v3/bootstrap/shell"
-	"github.com/buildkite/agent/v3/cliconfig"
-	"github.com/buildkite/agent/v3/experiments"
-	"github.com/buildkite/agent/v3/hook"
+	"github.com/buildkite/agent/v3/core"
+	"github.com/buildkite/agent/v3/internal/agentapi"
+	"github.com/buildkite/agent/v3/internal/awslib"
+	awssigner "github.com/buildkite/agent/v3/internal/cryptosigner/aws"
+	"github.com/buildkite/agent/v3/internal/experiments"
+	"github.com/buildkite/agent/v3/internal/job/hook"
+	"github.com/buildkite/agent/v3/internal/osutil"
+	"github.com/buildkite/agent/v3/internal/shell"
 	"github.com/buildkite/agent/v3/logger"
 	"github.com/buildkite/agent/v3/metrics"
 	"github.com/buildkite/agent/v3/process"
 	"github.com/buildkite/agent/v3/status"
 	"github.com/buildkite/agent/v3/tracetools"
-	"github.com/buildkite/agent/v3/utils"
 	"github.com/buildkite/agent/v3/version"
 	"github.com/buildkite/shellwords"
+	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/urfave/cli"
 	"golang.org/x/exp/maps"
 )
 
-var StartDescription = `Usage:
+const startDescription = `Usage:
 
-   buildkite-agent start [options...]
+    buildkite-agent start [options...]
 
 Description:
 
-   When a job is ready to run it will call the "bootstrap-script"
-   and pass it all the environment variables required for the job to run.
-   This script is responsible for checking out the code, and running the
-   actual build script defined in the pipeline.
+When a job is ready to run it will call the "bootstrap-script"
+and pass it all the environment variables required for the job to run.
+This script is responsible for checking out the code, and running the
+actual build script defined in the pipeline.
 
-   The agent will run any jobs within a PTY (pseudo terminal) if available.
+The agent will run any jobs within a PTY (pseudo terminal) if available.
 
 Example:
 
-   $ buildkite-agent start --token xxx`
+    $ buildkite-agent start --token xxx`
+
+var (
+	verificationFailureBehaviors = []string{agent.VerificationBehaviourBlock, agent.VerificationBehaviourWarn}
+
+	buildkiteSetEnvironmentVariables = []*regexp.Regexp{
+		regexp.MustCompile("^BUILDKITE$"),
+		regexp.MustCompile("^BUILDKITE_.*$"),
+		regexp.MustCompile("^CI$"),
+	}
+)
 
 // Adding config requires changes in a few different spots
 // - The AgentStartConfig struct with a cli parameter
@@ -58,69 +78,113 @@ Example:
 // - Into clicommand/bootstrap.go to read it from the env into the bootstrap config
 
 type AgentStartConfig struct {
-	Config                      string   `cli:"config"`
-	Name                        string   `cli:"name"`
-	Priority                    string   `cli:"priority"`
-	AcquireJob                  string   `cli:"acquire-job"`
-	DisconnectAfterJob          bool     `cli:"disconnect-after-job"`
-	DisconnectAfterIdleTimeout  int      `cli:"disconnect-after-idle-timeout"`
-	BootstrapScript             string   `cli:"bootstrap-script" normalize:"commandpath"`
-	CancelGracePeriod           int      `cli:"cancel-grace-period"`
-	EnableJobLogTmpfile         bool     `cli:"enable-job-log-tmpfile"`
-	BuildPath                   string   `cli:"build-path" normalize:"filepath" validate:"required"`
-	HooksPath                   string   `cli:"hooks-path" normalize:"filepath"`
-	PluginsPath                 string   `cli:"plugins-path" normalize:"filepath"`
-	Shell                       string   `cli:"shell"`
-	Tags                        []string `cli:"tags" normalize:"list"`
-	TagsFromEC2MetaData         bool     `cli:"tags-from-ec2-meta-data"`
-	TagsFromEC2MetaDataPaths    []string `cli:"tags-from-ec2-meta-data-paths" normalize:"list"`
-	TagsFromEC2Tags             bool     `cli:"tags-from-ec2-tags"`
-	TagsFromECSMetaData         bool     `cli:"tags-from-ecs-meta-data"`
-	TagsFromGCPMetaData         bool     `cli:"tags-from-gcp-meta-data"`
-	TagsFromGCPMetaDataPaths    []string `cli:"tags-from-gcp-meta-data-paths" normalize:"list"`
-	TagsFromGCPLabels           bool     `cli:"tags-from-gcp-labels"`
-	TagsFromHost                bool     `cli:"tags-from-host"`
-	WaitForEC2TagsTimeout       string   `cli:"wait-for-ec2-tags-timeout"`
-	WaitForEC2MetaDataTimeout   string   `cli:"wait-for-ec2-meta-data-timeout"`
-	WaitForECSMetaDataTimeout   string   `cli:"wait-for-ecs-meta-data-timeout"`
-	WaitForGCPLabelsTimeout     string   `cli:"wait-for-gcp-labels-timeout"`
-	GitCloneFlags               string   `cli:"git-clone-flags"`
-	GitCloneMirrorFlags         string   `cli:"git-clone-mirror-flags"`
-	GitCleanFlags               string   `cli:"git-clean-flags"`
-	GitFetchFlags               string   `cli:"git-fetch-flags"`
-	GitMirrorsPath              string   `cli:"git-mirrors-path" normalize:"filepath"`
-	GitMirrorsLockTimeout       int      `cli:"git-mirrors-lock-timeout"`
-	GitMirrorsSkipUpdate        bool     `cli:"git-mirrors-skip-update"`
-	NoGitSubmodules             bool     `cli:"no-git-submodules"`
-	NoSSHKeyscan                bool     `cli:"no-ssh-keyscan"`
-	NoCommandEval               bool     `cli:"no-command-eval"`
-	NoLocalHooks                bool     `cli:"no-local-hooks"`
-	NoPlugins                   bool     `cli:"no-plugins"`
-	NoPluginValidation          bool     `cli:"no-plugin-validation"`
-	NoPTY                       bool     `cli:"no-pty"`
-	NoFeatureReporting          bool     `cli:"no-feature-reporting"`
-	TimestampLines              bool     `cli:"timestamp-lines"`
-	HealthCheckAddr             string   `cli:"health-check-addr"`
-	MetricsDatadog              bool     `cli:"metrics-datadog"`
-	MetricsDatadogHost          string   `cli:"metrics-datadog-host"`
-	MetricsDatadogDistributions bool     `cli:"metrics-datadog-distributions"`
-	TracingBackend              string   `cli:"tracing-backend"`
-	TracingServiceName          string   `cli:"tracing-service-name"`
-	Spawn                       int      `cli:"spawn"`
-	SpawnWithPriority           bool     `cli:"spawn-with-priority"`
-	LogFormat                   string   `cli:"log-format"`
-	CancelSignal                string   `cli:"cancel-signal"`
-	RedactedVars                []string `cli:"redacted-vars" normalize:"list"`
+	Config string `cli:"config"`
+
+	Name              string   `cli:"name"`
+	Priority          string   `cli:"priority"`
+	Spawn             int      `cli:"spawn"`
+	SpawnPerCPU       int      `cli:"spawn-per-cpu"`
+	SpawnWithPriority bool     `cli:"spawn-with-priority"`
+	RedactedVars      []string `cli:"redacted-vars" normalize:"list"`
+	CancelSignal      string   `cli:"cancel-signal"`
+
+	SigningJWKSKeyID string `cli:"signing-jwks-key-id"`
+
+	SigningJWKSFile  string `cli:"signing-jwks-file" normalize:"filepath"`
+	SigningAWSKMSKey string `cli:"signing-aws-kms-key"`
+	DebugSigning     bool   `cli:"debug-signing"`
+
+	VerificationJWKSFile        string `cli:"verification-jwks-file" normalize:"filepath"`
+	VerificationFailureBehavior string `cli:"verification-failure-behavior"`
+
+	AcquireJob                 string `cli:"acquire-job"`
+	DisconnectAfterJob         bool   `cli:"disconnect-after-job"`
+	DisconnectAfterIdleTimeout int    `cli:"disconnect-after-idle-timeout"`
+	CancelGracePeriod          int    `cli:"cancel-grace-period"`
+	SignalGracePeriodSeconds   int    `cli:"signal-grace-period-seconds"`
+
+	EnableJobLogTmpfile bool   `cli:"enable-job-log-tmpfile"`
+	JobLogPath          string `cli:"job-log-path" normalize:"filepath"`
+
+	LogFormat            string   `cli:"log-format"`
+	WriteJobLogsToStdout bool     `cli:"write-job-logs-to-stdout"`
+	DisableWarningsFor   []string `cli:"disable-warnings-for" normalize:"list"`
+
+	BuildPath            string   `cli:"build-path" normalize:"filepath" validate:"required"`
+	HooksPath            string   `cli:"hooks-path" normalize:"filepath"`
+	AdditionalHooksPaths []string `cli:"additional-hooks-paths" normalize:"list"`
+	SocketsPath          string   `cli:"sockets-path" normalize:"filepath"`
+	PluginsPath          string   `cli:"plugins-path" normalize:"filepath"`
+
+	Shell           string `cli:"shell"`
+	BootstrapScript string `cli:"bootstrap-script" normalize:"commandpath"`
+	NoPTY           bool   `cli:"no-pty"`
+
+	NoANSITimestamps bool `cli:"no-ansi-timestamps"`
+	TimestampLines   bool `cli:"timestamp-lines"`
+
+	Queue                     string   `cli:"queue"`
+	Tags                      []string `cli:"tags" normalize:"list"`
+	TagsFromEC2MetaData       bool     `cli:"tags-from-ec2-meta-data"`
+	TagsFromEC2MetaDataPaths  []string `cli:"tags-from-ec2-meta-data-paths" normalize:"list"`
+	TagsFromEC2Tags           bool     `cli:"tags-from-ec2-tags"`
+	TagsFromECSMetaData       bool     `cli:"tags-from-ecs-meta-data"`
+	TagsFromGCPMetaData       bool     `cli:"tags-from-gcp-meta-data"`
+	TagsFromGCPMetaDataPaths  []string `cli:"tags-from-gcp-meta-data-paths" normalize:"list"`
+	TagsFromGCPLabels         bool     `cli:"tags-from-gcp-labels"`
+	TagsFromHost              bool     `cli:"tags-from-host"`
+	WaitForEC2TagsTimeout     string   `cli:"wait-for-ec2-tags-timeout"`
+	WaitForEC2MetaDataTimeout string   `cli:"wait-for-ec2-meta-data-timeout"`
+	WaitForECSMetaDataTimeout string   `cli:"wait-for-ecs-meta-data-timeout"`
+	WaitForGCPLabelsTimeout   string   `cli:"wait-for-gcp-labels-timeout"`
+
+	GitCheckoutFlags      string `cli:"git-checkout-flags"`
+	GitCloneFlags         string `cli:"git-clone-flags"`
+	GitCloneMirrorFlags   string `cli:"git-clone-mirror-flags"`
+	GitCleanFlags         string `cli:"git-clean-flags"`
+	GitFetchFlags         string `cli:"git-fetch-flags"`
+	GitMirrorsPath        string `cli:"git-mirrors-path" normalize:"filepath"`
+	GitMirrorsLockTimeout int    `cli:"git-mirrors-lock-timeout"`
+	GitMirrorsSkipUpdate  bool   `cli:"git-mirrors-skip-update"`
+	NoGitSubmodules       bool   `cli:"no-git-submodules"`
+
+	NoSSHKeyscan        bool     `cli:"no-ssh-keyscan"`
+	NoCommandEval       bool     `cli:"no-command-eval"`
+	NoLocalHooks        bool     `cli:"no-local-hooks"`
+	NoPlugins           bool     `cli:"no-plugins"`
+	NoPluginValidation  bool     `cli:"no-plugin-validation"`
+	NoFeatureReporting  bool     `cli:"no-feature-reporting"`
+	AllowedRepositories []string `cli:"allowed-repositories" normalize:"list"`
+	AllowedPlugins      []string `cli:"allowed-plugins" normalize:"list"`
+
+	EnableEnvironmentVariableAllowList bool     `cli:"enable-environment-variable-allowlist"`
+	AllowedEnvironmentVariables        []string `cli:"allowed-environment-variables" normalize:"list"`
+
+	HealthCheckAddr string `cli:"health-check-addr"`
+
+	// Datadog statsd metrics config
+	MetricsDatadog              bool   `cli:"metrics-datadog"`
+	MetricsDatadogHost          string `cli:"metrics-datadog-host"`
+	MetricsDatadogDistributions bool   `cli:"metrics-datadog-distributions"`
+
+	// Tracing config
+	TracingBackend     string `cli:"tracing-backend"`
+	TracingServiceName string `cli:"tracing-service-name"`
 
 	// Global flags
-	Debug       bool     `cli:"debug"`
-	LogLevel    string   `cli:"log-level"`
-	NoColor     bool     `cli:"no-color"`
-	Experiments []string `cli:"experiment" normalize:"list"`
-	Profile     string   `cli:"profile"`
+	Debug                     bool     `cli:"debug"`
+	LogLevel                  string   `cli:"log-level"`
+	NoColor                   bool     `cli:"no-color"`
+	Experiments               []string `cli:"experiment" normalize:"list"`
+	Profile                   string   `cli:"profile"`
+	StrictSingleHooks         bool     `cli:"strict-single-hooks"`
+	KubernetesExec            bool     `cli:"kubernetes-exec"`
+	TraceContextEncoding      string   `cli:"trace-context-encoding"`
+	NoMultipartArtifactUpload bool     `cli:"no-multipart-artifact-upload"`
 
 	// API config
 	DebugHTTP bool   `cli:"debug-http"`
+	TraceHTTP bool   `cli:"trace-http"`
 	Token     string `cli:"token" validate:"required"`
 	Endpoint  string `cli:"endpoint" validate:"required"`
 	NoHTTP2   bool   `cli:"no-http2"`
@@ -136,7 +200,7 @@ type AgentStartConfig struct {
 	DisconnectAfterJobTimeout    int      `cli:"disconnect-after-job-timeout" deprecated:"Use disconnect-after-idle-timeout instead"`
 }
 
-func (asc AgentStartConfig) Features() []string {
+func (asc AgentStartConfig) Features(ctx context.Context) []string {
 	if asc.NoFeatureReporting {
 		return []string{}
 	}
@@ -175,8 +239,32 @@ func (asc AgentStartConfig) Features() []string {
 		features = append(features, "no-script-eval")
 	}
 
-	for _, exp := range experiments.Enabled() {
+	if asc.NoHTTP2 {
+		features = append(features, "no-http2")
+	}
+
+	if len(asc.AllowedRepositories) > 0 {
+		features = append(features, "allowed-repositories")
+	}
+
+	if len(asc.AllowedPlugins) > 0 {
+		features = append(features, "allowed-plugins")
+	}
+
+	for _, exp := range experiments.Enabled(ctx) {
 		features = append(features, fmt.Sprintf("experiment-%s", exp))
+	}
+
+	if envHasKey("HTTP_PROXY") || envHasKey("http_proxy") {
+		features = append(features, "env-http-proxy")
+	}
+
+	if envHasKey("GODEBUG") {
+		features = append(features, "env-godebug")
+	}
+
+	if asc.MetricsDatadog {
+		features = append(features, "datadog-metrics")
 	}
 
 	return features
@@ -196,8 +284,8 @@ func DefaultShell() string {
 	}
 }
 
-func DefaultConfigFilePaths() (paths []string) {
-	// Toggle beetwen windows and *nix paths
+func defaultConfigFilePaths() (paths []string) {
+	// Toggle between windows and *nix paths
 	if runtime.GOOS == "windows" {
 		paths = []string{
 			"C:\\buildkite-agent\\buildkite-agent.cfg",
@@ -228,13 +316,13 @@ func DefaultConfigFilePaths() (paths []string) {
 		}
 	}
 
-	return
+	return paths
 }
 
 var AgentStartCommand = cli.Command{
 	Name:        "start",
 	Usage:       "Starts a Buildkite agent",
-	Description: StartDescription,
+	Description: startDescription,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:   "config",
@@ -271,22 +359,32 @@ var AgentStartCommand = cli.Command{
 			Usage:  "The maximum idle time in seconds to wait for a job before disconnecting. The default of 0 means no timeout",
 			EnvVar: "BUILDKITE_AGENT_DISCONNECT_AFTER_IDLE_TIMEOUT",
 		},
-		cli.IntFlag{
-			Name:   "cancel-grace-period",
-			Value:  10,
-			Usage:  "The number of seconds a canceled or timed out job is given to gracefully terminate and upload its artifacts",
-			EnvVar: "BUILDKITE_CANCEL_GRACE_PERIOD",
-		},
+		cancelGracePeriodFlag,
 		cli.BoolFlag{
 			Name:   "enable-job-log-tmpfile",
 			Usage:  "Store the job logs in a temporary file ′BUILDKITE_JOB_LOG_TMPFILE′ that is accessible during the job and removed at the end of the job",
 			EnvVar: "BUILDKITE_ENABLE_JOB_LOG_TMPFILE",
 		},
 		cli.StringFlag{
+			Name:   "job-log-path",
+			Usage:  "Location to store job logs created by configuring ′enable-job-log-tmpfile`, by default job log will be stored in TempDir",
+			EnvVar: "BUILDKITE_JOB_LOG_PATH",
+		},
+		cli.BoolFlag{
+			Name:   "write-job-logs-to-stdout",
+			Usage:  "Writes job logs to the agent process' stdout. This simplifies log collection if running agents in Docker.",
+			EnvVar: "BUILDKITE_WRITE_JOB_LOGS_TO_STDOUT",
+		},
+		cli.StringFlag{
 			Name:   "shell",
 			Value:  DefaultShell(),
 			Usage:  "The shell command used to interpret build commands, e.g /bin/bash -e -c",
 			EnvVar: "BUILDKITE_SHELL",
+		},
+		cli.StringFlag{
+			Name:   "queue",
+			Usage:  "The queue the agent will listen to for jobs. If not set, the agent will use the default queue. Overwrites the queue tag in the agent's tags",
+			EnvVar: "BUILDKITE_AGENT_QUEUE",
 		},
 		cli.StringSliceFlag{
 			Name:   "tags",
@@ -363,6 +461,12 @@ var AgentStartCommand = cli.Command{
 			Value:  time.Second * 10,
 		},
 		cli.StringFlag{
+			Name:   "git-checkout-flags",
+			Value:  "-f",
+			Usage:  "Flags to pass to \"git checkout\" command",
+			EnvVar: "BUILDKITE_GIT_CHECKOUT_FLAGS",
+		},
+		cli.StringFlag{
 			Name:   "git-clone-flags",
 			Value:  "-v",
 			Usage:  "Flags to pass to the \"git clone\" command",
@@ -425,6 +529,18 @@ var AgentStartCommand = cli.Command{
 			Usage:  "Directory where the hook scripts are found",
 			EnvVar: "BUILDKITE_HOOKS_PATH",
 		},
+		cli.StringSliceFlag{
+			Name:   "additional-hooks-paths",
+			Value:  &cli.StringSlice{},
+			Usage:  "Additional directories to look for agent hooks",
+			EnvVar: "BUILDKITE_ADDITIONAL_HOOKS_PATHS",
+		},
+		cli.StringFlag{
+			Name:   "sockets-path",
+			Value:  defaultSocketsPath(),
+			Usage:  "Directory where the agent will place sockets",
+			EnvVar: "BUILDKITE_SOCKETS_PATH",
+		},
 		cli.StringFlag{
 			Name:   "plugins-path",
 			Value:  "",
@@ -432,8 +548,13 @@ var AgentStartCommand = cli.Command{
 			EnvVar: "BUILDKITE_PLUGINS_PATH",
 		},
 		cli.BoolFlag{
+			Name:   "no-ansi-timestamps",
+			Usage:  "Do not insert ANSI timestamp codes at the start of each line of job output",
+			EnvVar: "BUILDKITE_NO_ANSI_TIMESTAMPS",
+		},
+		cli.BoolFlag{
 			Name:   "timestamp-lines",
-			Usage:  "Prepend timestamps on each line of output.",
+			Usage:  "Prepend timestamps on each line of job output. Has no effect unless --no-ansi-timestamps is also used",
 			EnvVar: "BUILDKITE_TIMESTAMP_LINES",
 		},
 		cli.StringFlag{
@@ -477,14 +598,37 @@ var AgentStartCommand = cli.Command{
 			EnvVar: "BUILDKITE_NO_GIT_SUBMODULES,BUILDKITE_DISABLE_GIT_SUBMODULES",
 		},
 		cli.BoolFlag{
-			Name:   "metrics-datadog",
-			Usage:  "Send metrics to DogStatsD for Datadog",
-			EnvVar: "BUILDKITE_METRICS_DATADOG",
-		},
-		cli.BoolFlag{
 			Name:   "no-feature-reporting",
 			Usage:  "Disables sending a list of enabled features back to the Buildkite mothership. We use this information to measure feature usage, but if you're not comfortable sharing that information then that's totally okay :)",
 			EnvVar: "BUILDKITE_AGENT_NO_FEATURE_REPORTING",
+		},
+		cli.StringSliceFlag{
+			Name:   "allowed-repositories",
+			Value:  &cli.StringSlice{},
+			Usage:  `A comma-separated list of regular expressions representing repositories the agent is allowed to clone (for example, "^git@github.com:buildkite/.*" or "^https://github.com/buildkite/.*")`,
+			EnvVar: "BUILDKITE_ALLOWED_REPOSITORIES",
+		},
+		cli.BoolFlag{
+			Name:   "enable-environment-variable-allowlist",
+			Usage:  "Only run jobs where all environment variables are allowed by the allowed-environment-variables option, or have been set by Buildkite",
+			EnvVar: "BUILDKITE_ENABLE_ENVIRONMENT_VARIABLE_ALLOWLIST",
+		},
+		cli.StringSliceFlag{
+			Name:   "allowed-environment-variables",
+			Value:  &cli.StringSlice{},
+			Usage:  `A comma-separated list of regular expressions representing environment variables the agent will pass to jobs (for example, "^MYAPP_.*$"). Environment variables set by Buildkite will always be allowed. Requires --enable-environment-variable-allowlist to be set`,
+			EnvVar: "BUILDKITE_ALLOWED_ENVIRONMENT_VARIABLES",
+		},
+		cli.StringSliceFlag{
+			Name:   "allowed-plugins",
+			Value:  &cli.StringSlice{},
+			Usage:  `A comma-separated list of regular expressions representing plugins the agent is allowed to use (for example, "^buildkite-plugins/.*$" or "^/var/lib/buildkite-plugins/.*")`,
+			EnvVar: "BUILDKITE_ALLOWED_PLUGINS",
+		},
+		cli.BoolFlag{
+			Name:   "metrics-datadog",
+			Usage:  "Send metrics to DogStatsD for Datadog",
+			EnvVar: "BUILDKITE_METRICS_DATADOG",
 		},
 		cli.StringFlag{
 			Name:   "metrics-datadog-host",
@@ -505,21 +649,23 @@ var AgentStartCommand = cli.Command{
 		},
 		cli.IntFlag{
 			Name:   "spawn",
-			Usage:  "The number of agents to spawn in parallel",
+			Usage:  "The number of agents to spawn in parallel (mutually exclusive with --spawn-per-cpu)",
 			Value:  1,
 			EnvVar: "BUILDKITE_AGENT_SPAWN",
 		},
+		cli.IntFlag{
+			Name:   "spawn-per-cpu",
+			Usage:  "The number of agents to spawn per cpu in parallel (mutually exclusive with --spawn)",
+			Value:  0,
+			EnvVar: "BUILDKITE_AGENT_SPAWN_PER_CPU",
+		},
 		cli.BoolFlag{
 			Name:   "spawn-with-priority",
-			Usage:  "Assign priorities to every spawned agent (when using --spawn) equal to the agent's index",
+			Usage:  "Assign priorities to every spawned agent (when using --spawn or --spawn-per-cpu) equal to the agent's index",
 			EnvVar: "BUILDKITE_AGENT_SPAWN_WITH_PRIORITY",
 		},
-		cli.StringFlag{
-			Name:   "cancel-signal",
-			Usage:  "The signal to use for cancellation",
-			EnvVar: "BUILDKITE_CANCEL_SIGNAL",
-			Value:  "SIGTERM",
-		},
+		cancelSignalFlag,
+		signalGracePeriodSecondsFlag,
 		cli.StringFlag{
 			Name:   "tracing-backend",
 			Usage:  `Enable tracing for build jobs by specifying a backend, "datadog" or "opentelemetry"`,
@@ -532,12 +678,49 @@ var AgentStartCommand = cli.Command{
 			EnvVar: "BUILDKITE_TRACING_SERVICE_NAME",
 			Value:  "buildkite-agent",
 		},
+		cli.StringFlag{
+			Name:   "verification-jwks-file",
+			Usage:  "Path to a file containing a JSON Web Key Set (JWKS), used to verify job signatures. ",
+			EnvVar: "BUILDKITE_AGENT_VERIFICATION_JWKS_FILE",
+		},
+		cli.StringFlag{
+			Name:   "signing-jwks-file",
+			Usage:  `Path to a file containing a signing key. Passing this flag enables pipeline signing for all pipelines uploaded by this agent. For hmac-sha256, the raw file content is used as the shared key. When using Docker containers to upload pipeline steps dynamically, use environment variable propagation (for example, "docker run -e BUILDKITE_AGENT_JWKS_FILE") to allow all steps within the pipeline to be signed.`,
+			EnvVar: "BUILDKITE_AGENT_SIGNING_JWKS_FILE",
+		},
+		cli.StringFlag{
+			Name:   "signing-jwks-key-id",
+			Usage:  "The JWKS key ID to use when signing the pipeline. If omitted, and the signing JWKS contains only one key, that key will be used.",
+			EnvVar: "BUILDKITE_AGENT_SIGNING_JWKS_KEY_ID",
+		},
+		cli.StringFlag{
+			Name:   "signing-aws-kms-key",
+			Usage:  "The KMS KMS key ID, or key alias used when signing and verifying the pipeline.",
+			EnvVar: "BUILDKITE_AGENT_SIGNING_AWS_KMS_KEY",
+		},
+		cli.BoolFlag{
+			Name:   "debug-signing",
+			Usage:  "Enable debug logging for pipeline signing. This can potentially leak secrets to the logs as it prints each step in full before signing. Requires debug logging to be enabled",
+			EnvVar: "BUILDKITE_AGENT_DEBUG_SIGNING",
+		},
+		cli.StringFlag{
+			Name:   "verification-failure-behavior",
+			Value:  agent.VerificationBehaviourBlock,
+			Usage:  fmt.Sprintf("The behavior when a job is received without a valid verifiable signature (without a signature, with an invalid signature, or with a signature that fails verification). One of: %v. Defaults to %s", verificationFailureBehaviors, agent.VerificationBehaviourBlock),
+			EnvVar: "BUILDKITE_AGENT_JOB_VERIFICATION_NO_SIGNATURE_BEHAVIOR",
+		},
+		cli.StringSliceFlag{
+			Name:   "disable-warnings-for",
+			Usage:  "A list of warning IDs to disable",
+			EnvVar: "BUILDKITE_AGENT_DISABLE_WARNINGS_FOR",
+		},
 
 		// API Flags
 		AgentRegisterTokenFlag,
 		EndpointFlag,
 		NoHTTP2Flag,
 		DebugHTTPFlag,
+		TraceHTTPFlag,
 
 		// Global flags
 		NoColorFlag,
@@ -546,6 +729,10 @@ var AgentStartCommand = cli.Command{
 		ExperimentsFlag,
 		ProfileFlag,
 		RedactedVars,
+		StrictSingleHooksFlag,
+		KubernetesExecFlag,
+		TraceContextEncodingFlag,
+		NoMultipartArtifactUploadFlag,
 
 		// Deprecated flags which will be removed in v4
 		cli.StringSliceFlag{
@@ -591,49 +778,37 @@ var AgentStartCommand = cli.Command{
 			EnvVar: "BUILDKITE_AGENT_DISCONNECT_AFTER_JOB_TIMEOUT",
 		},
 	},
-	Action: func(c *cli.Context) {
+	Action: func(c *cli.Context) error {
 		ctx := context.Background()
-
-		// The configuration will be loaded into this struct
-		cfg := AgentStartConfig{}
-
-		// Setup the config loader. You'll see that we also path paths to
-		// potential config files. The loader will use the first one it finds.
-		loader := cliconfig.Loader{
-			CLI:                    c,
-			Config:                 &cfg,
-			DefaultConfigFilePaths: DefaultConfigFilePaths(),
-		}
-
-		// Load the configuration
-		warnings, err := loader.Load()
-		if err != nil {
-			fmt.Printf("%s", err)
-			os.Exit(1)
-		}
-
-		l := CreateLogger(cfg)
-
-		// Show warnings now we have a logger
-		for _, warning := range warnings {
-			l.Warn("%s", warning)
-		}
-
-		// Setup any global configuration options
-		done := HandleGlobalFlags(l, cfg)
+		ctx, cfg, l, configFile, done := setupLoggerAndConfig[AgentStartConfig](ctx, c, withConfigFilePaths(
+			defaultConfigFilePaths(),
+		))
 		defer done()
 
-		// Remove any config env from the environment to prevent them propagating to bootstrap
-		err = UnsetConfigFromEnvironment(c)
-		if err != nil {
-			fmt.Printf("%s", err)
-			os.Exit(1)
+		// Verify that the bootstrap buildkite-agent executable matches the current host agent
+		// executable. In development builds, it exits on mismatch; otherwise it only logs a warning.
+		// This is to avoid confusion when making changes to the buildkite-agent but forgetting to
+		// update the buildkite-agent binary available from $PATH
+		if err := checkBinaryPaths(); err != nil {
+			if version.IsDevelopmentBuild() {
+				return fmt.Errorf("check binary paths: %s", err)
+			} else {
+				l.Warn("check binary paths: %s", err)
+			}
 		}
 
-		// Check if git-mirrors are enabled
-		if experiments.IsEnabled("git-mirrors") {
-			if cfg.GitMirrorsPath == "" {
-				l.Fatal("Must provide a git-mirrors-path in your configuration for git-mirrors experiment")
+		// Remove any config env from the environment to prevent them propagating to bootstrap
+		if err := UnsetConfigFromEnvironment(c); err != nil {
+			return fmt.Errorf("failed to unset config from environment: %w", err)
+		}
+
+		if cfg.VerificationJWKSFile != "" {
+			if !slices.Contains(verificationFailureBehaviors, cfg.VerificationFailureBehavior) {
+				return fmt.Errorf(
+					"invalid job verification no signature behavior %q. Must be one of: %v",
+					cfg.VerificationFailureBehavior,
+					verificationFailureBehaviors,
+				)
 			}
 		}
 
@@ -646,14 +821,14 @@ var AgentStartCommand = cli.Command{
 		if cfg.BootstrapScript == "" {
 			exePath, err := os.Executable()
 			if err != nil {
-				l.Fatal("Unable to find executable path for bootstrap")
+				return errors.New("unable to find executable path for bootstrap")
 			}
 			cfg.BootstrapScript = fmt.Sprintf("%s bootstrap", shellwords.Quote(exePath))
 		}
 
 		isSetNoPlugins := c.IsSet("no-plugins")
-		if loader.File != nil {
-			if _, exists := loader.File.Config["no-plugins"]; exists {
+		if configFile != nil {
+			if _, exists := configFile.Config["no-plugins"]; exists {
 				isSetNoPlugins = true
 			}
 		}
@@ -694,7 +869,7 @@ var AgentStartCommand = cli.Command{
 			var err error
 			ec2TagTimeout, err = time.ParseDuration(t)
 			if err != nil {
-				l.Fatal("Failed to parse ec2 tag timeout: %v", err)
+				return fmt.Errorf("failed to parse ec2 tag timeout: %w", err)
 			}
 		}
 
@@ -703,7 +878,7 @@ var AgentStartCommand = cli.Command{
 			var err error
 			ec2MetaDataTimeout, err = time.ParseDuration(t)
 			if err != nil {
-				l.Fatal("Failed to parse ec2 meta-data timeout: %v", err)
+				return fmt.Errorf("failed to parse ec2 meta-data timeout: %w", err)
 			}
 		}
 
@@ -712,7 +887,7 @@ var AgentStartCommand = cli.Command{
 			var err error
 			ecsMetaDataTimeout, err = time.ParseDuration(t)
 			if err != nil {
-				l.Fatal("Failed to parse ecs meta-data timeout: %v", err)
+				return fmt.Errorf("failed to parse ecs meta-data timeout: %w", err)
 			}
 		}
 
@@ -721,8 +896,17 @@ var AgentStartCommand = cli.Command{
 			var err error
 			gcpLabelsTimeout, err = time.ParseDuration(t)
 			if err != nil {
-				l.Fatal("Failed to parse gcp labels timeout: %v", err)
+				return fmt.Errorf("failed to parse gcp labels timeout: %w", err)
 			}
+		}
+
+		signalGracePeriod, err := signalGracePeriod(cfg.CancelGracePeriod, cfg.SignalGracePeriodSeconds)
+		if err != nil {
+			return err
+		}
+
+		if _, err := tracetools.ParseEncoding(cfg.TraceContextEncoding); err != nil {
+			return fmt.Errorf("while parsing trace context encoding: %v", err)
 		}
 
 		mc := metrics.NewCollector(l, metrics.CollectorConfig{
@@ -733,43 +917,141 @@ var AgentStartCommand = cli.Command{
 
 		// Sense check supported tracing backends, we don't want bootstrapped jobs to silently have no tracing
 		if _, has := tracetools.ValidTracingBackends[cfg.TracingBackend]; !has {
-			l.Fatal("The given tracing backend %q is not supported. Valid backends are: %q", cfg.TracingBackend, maps.Keys(tracetools.ValidTracingBackends))
+			return fmt.Errorf(
+				"the given tracing backend %q is not supported. Valid backends are: %q",
+				cfg.TracingBackend,
+				maps.Keys(tracetools.ValidTracingBackends),
+			)
+		}
+
+		if experiments.IsEnabled(ctx, experiments.AgentAPI) {
+			shutdown, err := runAgentAPI(ctx, l, cfg.SocketsPath)
+			if err != nil {
+				return err
+			}
+			defer shutdown()
+		}
+
+		// if the agent is provided a KMS key ID, it should use the KMS signer, otherwise
+		// it should load the JWKS from the file
+		var verificationJWKS any
+		switch {
+		case cfg.SigningAWSKMSKey != "":
+
+			var logMode aws.ClientLogMode
+			// log requests and retries if we are debugging signing
+			// see https://aws.github.io/aws-sdk-go-v2/docs/configuring-sdk/logging/
+			if cfg.DebugSigning {
+				logMode = aws.LogRetries | aws.LogRequest
+			}
+
+			// this is currently loaded here to ensure it is ONLY loaded if the agent is using KMS for signing
+			// this will limit the possible impact of this new SDK on the rest of the agent users
+			awscfg, err := awslib.GetConfigV2(
+				ctx,
+				config.WithClientLogMode(logMode),
+			)
+			if err != nil {
+				return err
+			}
+
+			// assign a crypto signer which uses the KMS key to sign the pipeline
+			verificationJWKS, err = awssigner.NewKMS(kms.NewFromConfig(awscfg), cfg.SigningAWSKMSKey)
+			if err != nil {
+				return fmt.Errorf("couldn't create KMS signer: %w", err)
+			}
+
+		case cfg.VerificationJWKSFile != "":
+			var err error
+			verificationJWKS, err = parseAndValidateJWKS(ctx, "verification", cfg.VerificationJWKSFile)
+			if err != nil {
+				l.Fatal("Verification JWKS failed validation: %v", err)
+			}
+		}
+
+		if cfg.SigningJWKSFile != "" {
+			// The actual JWKS itself doesn't get used until `buildkite-agent pipeline upload` is called, but validate it here anyway
+			_, err := parseAndValidateJWKS(ctx, "signing", cfg.SigningJWKSFile)
+			if err != nil {
+				l.Fatal("Signing JWKS failed validation: %v", err)
+			}
+		}
+
+		if len(cfg.AllowedEnvironmentVariables) > 0 && !cfg.EnableEnvironmentVariableAllowList {
+			l.Fatal("allowed-environment-variables is set, but enable-environment-variable-allowlist is not set")
+		}
+
+		var allowedEnvironmentVariables []*regexp.Regexp
+		if cfg.EnableEnvironmentVariableAllowList {
+			allowedEnvironmentVariables = append(allowedEnvironmentVariables, buildkiteSetEnvironmentVariables...)
+
+			for _, v := range cfg.AllowedEnvironmentVariables {
+				re, err := regexp.Compile(v)
+				if err != nil {
+					l.Fatal("Regex %s in allowed-environment-variables failed to compile: %v", v, err)
+				}
+
+				allowedEnvironmentVariables = append(allowedEnvironmentVariables, re)
+			}
 		}
 
 		// AgentConfiguration is the runtime configuration for an agent
 		agentConf := agent.AgentConfiguration{
-			BootstrapScript:            cfg.BootstrapScript,
-			BuildPath:                  cfg.BuildPath,
-			GitMirrorsPath:             cfg.GitMirrorsPath,
-			GitMirrorsLockTimeout:      cfg.GitMirrorsLockTimeout,
-			GitMirrorsSkipUpdate:       cfg.GitMirrorsSkipUpdate,
-			HooksPath:                  cfg.HooksPath,
-			PluginsPath:                cfg.PluginsPath,
-			GitCloneFlags:              cfg.GitCloneFlags,
-			GitCloneMirrorFlags:        cfg.GitCloneMirrorFlags,
-			GitCleanFlags:              cfg.GitCleanFlags,
-			GitFetchFlags:              cfg.GitFetchFlags,
-			GitSubmodules:              !cfg.NoGitSubmodules,
-			SSHKeyscan:                 !cfg.NoSSHKeyscan,
-			CommandEval:                !cfg.NoCommandEval,
-			PluginsEnabled:             !cfg.NoPlugins,
-			PluginValidation:           !cfg.NoPluginValidation,
-			LocalHooksEnabled:          !cfg.NoLocalHooks,
-			RunInPty:                   !cfg.NoPTY,
-			TimestampLines:             cfg.TimestampLines,
-			DisconnectAfterJob:         cfg.DisconnectAfterJob,
-			DisconnectAfterIdleTimeout: cfg.DisconnectAfterIdleTimeout,
-			CancelGracePeriod:          cfg.CancelGracePeriod,
-			EnableJobLogTmpfile:        cfg.EnableJobLogTmpfile,
-			Shell:                      cfg.Shell,
-			RedactedVars:               cfg.RedactedVars,
-			AcquireJob:                 cfg.AcquireJob,
-			TracingBackend:             cfg.TracingBackend,
-			TracingServiceName:         cfg.TracingServiceName,
+			BootstrapScript:              cfg.BootstrapScript,
+			BuildPath:                    cfg.BuildPath,
+			SocketsPath:                  cfg.SocketsPath,
+			GitMirrorsPath:               cfg.GitMirrorsPath,
+			GitMirrorsLockTimeout:        cfg.GitMirrorsLockTimeout,
+			GitMirrorsSkipUpdate:         cfg.GitMirrorsSkipUpdate,
+			HooksPath:                    cfg.HooksPath,
+			AdditionalHooksPaths:         cfg.AdditionalHooksPaths,
+			PluginsPath:                  cfg.PluginsPath,
+			GitCheckoutFlags:             cfg.GitCheckoutFlags,
+			GitCloneFlags:                cfg.GitCloneFlags,
+			GitCloneMirrorFlags:          cfg.GitCloneMirrorFlags,
+			GitCleanFlags:                cfg.GitCleanFlags,
+			GitFetchFlags:                cfg.GitFetchFlags,
+			GitSubmodules:                !cfg.NoGitSubmodules,
+			SSHKeyscan:                   !cfg.NoSSHKeyscan,
+			CommandEval:                  !cfg.NoCommandEval,
+			PluginsEnabled:               !cfg.NoPlugins,
+			PluginValidation:             !cfg.NoPluginValidation,
+			LocalHooksEnabled:            !cfg.NoLocalHooks,
+			AllowedEnvironmentVariables:  allowedEnvironmentVariables,
+			StrictSingleHooks:            cfg.StrictSingleHooks,
+			RunInPty:                     !cfg.NoPTY,
+			ANSITimestamps:               !cfg.NoANSITimestamps,
+			TimestampLines:               cfg.TimestampLines,
+			DisconnectAfterJob:           cfg.DisconnectAfterJob,
+			DisconnectAfterIdleTimeout:   cfg.DisconnectAfterIdleTimeout,
+			CancelGracePeriod:            cfg.CancelGracePeriod,
+			SignalGracePeriod:            signalGracePeriod,
+			EnableJobLogTmpfile:          cfg.EnableJobLogTmpfile,
+			JobLogPath:                   cfg.JobLogPath,
+			WriteJobLogsToStdout:         cfg.WriteJobLogsToStdout,
+			LogFormat:                    cfg.LogFormat,
+			Shell:                        cfg.Shell,
+			RedactedVars:                 cfg.RedactedVars,
+			AcquireJob:                   cfg.AcquireJob,
+			TracingBackend:               cfg.TracingBackend,
+			TracingServiceName:           cfg.TracingServiceName,
+			TraceContextEncoding:         cfg.TraceContextEncoding,
+			AllowMultipartArtifactUpload: !cfg.NoMultipartArtifactUpload,
+			KubernetesExec:               cfg.KubernetesExec,
+
+			SigningJWKSFile:  cfg.SigningJWKSFile,
+			SigningJWKSKeyID: cfg.SigningJWKSKeyID,
+			SigningAWSKMSKey: cfg.SigningAWSKMSKey,
+			DebugSigning:     cfg.DebugSigning,
+
+			VerificationJWKS:             verificationJWKS,
+			VerificationFailureBehaviour: cfg.VerificationFailureBehavior,
+
+			DisableWarningsFor: cfg.DisableWarningsFor,
 		}
 
-		if loader.File != nil {
-			agentConf.ConfigPath = loader.File.Path
+		if configFile != nil {
+			agentConf.ConfigPath = configFile.Path
 		}
 
 		if cfg.LogFormat == "text" {
@@ -789,9 +1071,12 @@ var AgentStartCommand = cli.Command{
 			} else {
 				fmt.Fprintf(os.Stderr, welcomeMessage, "", "")
 			}
+		} else if cfg.LogFormat != "json" {
+			// TODO If/when cli is upgraded to v2, choice validation can be done with per-argument Actions.
+			return fmt.Errorf("invalid log format %q. Only 'text' or 'json' are allowed.", cfg.LogFormat)
 		}
 
-		l.Notice("Starting buildkite-agent v%s with PID: %s", version.Version(), fmt.Sprintf("%d", os.Getpid()))
+		l.Notice("Starting buildkite-agent v%s with PID: %s", version.Version(), strconv.Itoa(os.Getpid()))
 		l.Notice("The agent source code can be found here: https://github.com/buildkite/agent")
 		l.Notice("For questions and support, email us at: hello@buildkite.com")
 
@@ -802,7 +1087,12 @@ var AgentStartCommand = cli.Command{
 		l.Debug("Bootstrap command: %s", agentConf.BootstrapScript)
 		l.Debug("Build path: %s", agentConf.BuildPath)
 		l.Debug("Hooks directory: %s", agentConf.HooksPath)
+		l.Debug("Additional hooks directories: %v", agentConf.AdditionalHooksPaths)
 		l.Debug("Plugins directory: %s", agentConf.PluginsPath)
+
+		if exps := experiments.KnownAndEnabled(ctx); len(exps) > 0 {
+			l.WithFields(logger.StringField("experiments", fmt.Sprintf("%v", exps))).Info("Experiments are enabled")
+		}
 
 		if !agentConf.SSHKeyscan {
 			l.Info("Automatic ssh-keyscan has been disabled")
@@ -828,55 +1118,101 @@ var AgentStartCommand = cli.Command{
 			l.Info("Agents will disconnect after %d seconds of inactivity", agentConf.DisconnectAfterIdleTimeout)
 		}
 
+		if len(cfg.AllowedRepositories) > 0 {
+			agentConf.AllowedRepositories = make([]*regexp.Regexp, 0, len(cfg.AllowedRepositories))
+			for _, v := range cfg.AllowedRepositories {
+				r, err := regexp.Compile(v)
+				if err != nil {
+					l.Fatal("Regex %s is allowed-repositories failed to compile: %v", v, err)
+				}
+				agentConf.AllowedRepositories = append(agentConf.AllowedRepositories, r)
+			}
+			l.Info("Allowed repositories patterns: %q", agentConf.AllowedRepositories)
+		}
+
+		if len(cfg.AllowedPlugins) > 0 {
+			agentConf.AllowedPlugins = make([]*regexp.Regexp, 0, len(cfg.AllowedPlugins))
+			for _, v := range cfg.AllowedPlugins {
+				r, err := regexp.Compile(v)
+				if err != nil {
+					l.Fatal("Regex %s in allowed-plugins failed to compile: %v", v, err)
+				}
+				agentConf.AllowedPlugins = append(agentConf.AllowedPlugins, r)
+			}
+			l.Info("Allowed plugins patterns: %q", agentConf.AllowedPlugins)
+		}
+
 		cancelSig, err := process.ParseSignal(cfg.CancelSignal)
 		if err != nil {
-			l.Fatal("Failed to parse cancel-signal: %v", err)
+			return fmt.Errorf("failed to parse cancel-signal: %w", err)
+		}
+
+		tags := agent.FetchTags(ctx, l, agent.FetchTagsConfig{
+			Tags:                      cfg.Tags,
+			TagsFromK8s:               cfg.KubernetesExec,
+			TagsFromEC2MetaData:       (cfg.TagsFromEC2MetaData || cfg.TagsFromEC2),
+			TagsFromEC2MetaDataPaths:  cfg.TagsFromEC2MetaDataPaths,
+			TagsFromEC2Tags:           cfg.TagsFromEC2Tags,
+			TagsFromECSMetaData:       cfg.TagsFromECSMetaData,
+			TagsFromGCPMetaData:       (cfg.TagsFromGCPMetaData || cfg.TagsFromGCP),
+			TagsFromGCPMetaDataPaths:  cfg.TagsFromGCPMetaDataPaths,
+			TagsFromGCPLabels:         cfg.TagsFromGCPLabels,
+			TagsFromHost:              cfg.TagsFromHost,
+			WaitForEC2TagsTimeout:     ec2TagTimeout,
+			WaitForEC2MetaDataTimeout: ec2MetaDataTimeout,
+			WaitForECSMetaDataTimeout: ecsMetaDataTimeout,
+			WaitForGCPLabelsTimeout:   gcpLabelsTimeout,
+		})
+
+		// Munge the value from --queue (if it exists) into the tags slice
+		if cfg.Queue != "" {
+			i := slices.IndexFunc(tags, func(s string) bool {
+				return strings.HasPrefix(strings.TrimSpace(s), "queue=")
+			})
+			if i != -1 {
+				l.Fatal("Queue must be present in only one of the --tags or the --queue flags")
+			}
+			tags = append(tags, "queue="+cfg.Queue)
 		}
 
 		// confirm the BuildPath is exists. The bootstrap is going to write to it when a job executes,
 		// so we may as well check that'll work now and fail early if it's a problem
-		if !utils.FileExists(agentConf.BuildPath) {
+		if !osutil.FileExists(agentConf.BuildPath) {
 			l.Info("Build Path doesn't exist, creating it (%s)", agentConf.BuildPath)
 			// Actual file permissions will be reduced by umask, and won't be 0777 unless the user has manually changed the umask to 000
-			if err := os.MkdirAll(agentConf.BuildPath, 0777); err != nil {
-				l.Fatal("Failed to create builds path: %v", err)
+			if err := os.MkdirAll(agentConf.BuildPath, 0o777); err != nil {
+				return fmt.Errorf("failed to create builds path: %w", err)
 			}
 		}
 
-		// Create the API client
-		client := api.NewClient(l, loadAPIClientConfig(cfg, "Token"))
+		// Create the API apiClient
+		apiClient := api.NewClient(l, loadAPIClientConfig(cfg, "Token"))
+		client := &core.Client{APIClient: apiClient, Logger: l}
 
 		// The registration request for all agents
 		registerReq := api.AgentRegisterRequest{
 			Name:              cfg.Name,
 			Priority:          cfg.Priority,
 			ScriptEvalEnabled: !cfg.NoCommandEval,
-			Tags: agent.FetchTags(ctx, l, agent.FetchTagsConfig{
-				Tags:                      cfg.Tags,
-				TagsFromEC2MetaData:       (cfg.TagsFromEC2MetaData || cfg.TagsFromEC2),
-				TagsFromEC2MetaDataPaths:  cfg.TagsFromEC2MetaDataPaths,
-				TagsFromEC2Tags:           cfg.TagsFromEC2Tags,
-				TagsFromECSMetaData:       cfg.TagsFromECSMetaData,
-				TagsFromGCPMetaData:       (cfg.TagsFromGCPMetaData || cfg.TagsFromGCP),
-				TagsFromGCPMetaDataPaths:  cfg.TagsFromGCPMetaDataPaths,
-				TagsFromGCPLabels:         cfg.TagsFromGCPLabels,
-				TagsFromHost:              cfg.TagsFromHost,
-				WaitForEC2TagsTimeout:     ec2TagTimeout,
-				WaitForEC2MetaDataTimeout: ec2MetaDataTimeout,
-				WaitForECSMetaDataTimeout: ecsMetaDataTimeout,
-				WaitForGCPLabelsTimeout:   gcpLabelsTimeout,
-			}),
-			// We only want this agent to be ingored in Buildkite
+			Tags:              tags,
+			// We only want this agent to be ignored in Buildkite
 			// dispatches if it's being booted to acquire a
 			// specific job.
 			IgnoreInDispatches: cfg.AcquireJob != "",
-			Features:           cfg.Features(),
+			Features:           cfg.Features(ctx),
+		}
+
+		if cfg.SpawnPerCPU > 0 {
+			if cfg.Spawn > 1 {
+				return errors.New("You can't specify spawn and spawn-per-cpu at the same time")
+			}
+			cfg.Spawn = runtime.NumCPU() * cfg.SpawnPerCPU
 		}
 
 		// Spawning multiple agents doesn't work if the agent is being
 		// booted in acquisition mode
 		if cfg.Spawn > 1 && cfg.AcquireJob != "" {
-			l.Fatal("You can't spawn multiple agents and acquire a job at the same time")
+			return errors.New("You can't spawn multiple agents and acquire a job at the same time")
 		}
 
 		var workers []*agent.AgentWorker
@@ -892,26 +1228,38 @@ var AgentStartCommand = cli.Command{
 			registerReq.Name = strings.ReplaceAll(cfg.Name, "%spawn", strconv.Itoa(i))
 
 			if cfg.SpawnWithPriority {
-				l.Info("Assigning priority %s for agent %d", strconv.Itoa(i), i)
-				registerReq.Priority = strconv.Itoa(i)
+				p := i
+				if experiments.IsEnabled(ctx, experiments.DescendingSpawnPriority) {
+					// This experiment helps jobs be assigned across all hosts
+					// in cases where the value of --spawn varies between hosts.
+					p = -i
+				}
+				l.Info("Assigning priority %d for agent %d", p, i)
+				registerReq.Priority = strconv.Itoa(p)
 			}
 
 			// Register the agent with the buildkite API
-			ag, err := agent.Register(ctx, l, client, registerReq)
+			ag, err := client.Register(ctx, registerReq)
 			if err != nil {
-				l.Fatal("%s", err)
+				return err
 			}
 
 			// Create an agent worker to run the agent
-			workers = append(workers,
-				agent.NewAgentWorker(
-					l.WithFields(logger.StringField("agent", ag.Name)), ag, mc, client, agent.AgentWorkerConfig{
-						AgentConfiguration: agentConf,
-						CancelSignal:       cancelSig,
-						Debug:              cfg.Debug,
-						DebugHTTP:          cfg.DebugHTTP,
-						SpawnIndex:         i,
-					}))
+			workers = append(workers, agent.NewAgentWorker(
+				l.WithFields(logger.StringField("agent", ag.Name)),
+				ag,
+				mc,
+				apiClient,
+				agent.AgentWorkerConfig{
+					AgentConfiguration: agentConf,
+					CancelSignal:       cancelSig,
+					SignalGracePeriod:  signalGracePeriod,
+					Debug:              cfg.Debug,
+					DebugHTTP:          cfg.DebugHTTP,
+					SpawnIndex:         i,
+					AgentStdout:        os.Stdout,
+				},
+			))
 		}
 
 		// Setup the agent pool that spawns agent workers
@@ -922,7 +1270,7 @@ var AgentStartCommand = cli.Command{
 
 		// Once the shutdown hook has been setup, trigger the startup hook.
 		if err := agentStartupHook(l, cfg); err != nil {
-			l.Fatal("%s", err)
+			return fmt.Errorf("failed to run startup hook: %w", err)
 		}
 
 		// Handle process signals
@@ -934,37 +1282,84 @@ var AgentStartCommand = cli.Command{
 
 		// Determine the health check listening address and port for this agent
 		if cfg.HealthCheckAddr != "" {
-			http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-				l.Info("%s %s", r.Method, r.URL.Path)
-				if r.URL.Path != "/" {
-					http.NotFound(w, r)
-				} else {
-					fmt.Fprintf(w, "OK: Buildkite agent is running")
-				}
-			})
-
-			if experiments.IsEnabled("inbuilt-status-page") {
-				http.HandleFunc("/status", status.Handle)
-			}
-
-			go func() {
-				_, setStatus, done := status.AddSimpleItem(ctx, "Health check server")
-				defer done()
-				setStatus("👂 Listening")
-
-				l.Notice("Starting HTTP health check server on %v", cfg.HealthCheckAddr)
-				err := http.ListenAndServe(cfg.HealthCheckAddr, nil)
-				if err != nil {
-					l.Error("Could not start health check server: %v", err)
-				}
-			}()
+			pool.StartStatusServer(ctx, l, cfg.HealthCheckAddr)
 		}
 
-		// Start the agent pool
-		if err := pool.Start(ctx); err != nil {
-			l.Fatal("%s", err)
+		err = pool.Start(ctx)
+		if errors.Is(err, core.ErrJobAcquisitionRejected) {
+			// If the agent tried to acquire a job, but it couldn't because the job was already taken, we should exit with a
+			// specific exit code so that the caller can know that this job can't be acquired.
+
+			const acquisitionFailedExitCode = 27 // chosen by fair dice roll
+			return cli.NewExitError(err, acquisitionFailedExitCode)
 		}
+
+		return err
 	},
+}
+
+// checkBinaryPaths looks up both the bootstrap and host buildkite-agent paths,
+// and returns an error if they do not match or if either cannot be determined.
+func checkBinaryPaths() error {
+	bootstrapPath, err := exec.LookPath("buildkite-agent")
+	if err != nil {
+		return fmt.Errorf("failed to locate bootstrap buildkite-agent: %w", err)
+	}
+
+	evalBootstrapPath, err := filepath.EvalSymlinks(bootstrapPath)
+	if err != nil {
+		return fmt.Errorf("failed to locate bootstrap buildkite-agent: %w", err)
+	}
+
+	hostPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to determine host buildkite-agent executable: %w", err)
+	}
+
+	evalHostPath, err := filepath.EvalSymlinks(hostPath)
+	if err != nil {
+		return fmt.Errorf("failed to determine host buildkite-agent executable: %w", err)
+	}
+
+	if evalHostPath != evalBootstrapPath {
+		return fmt.Errorf(
+			"mismatched buildkite-agent paths: host=%q bootstrap=%q",
+			evalHostPath, evalBootstrapPath,
+		)
+	}
+
+	return nil
+}
+
+func parseAndValidateJWKS(ctx context.Context, keysetType, path string) (jwk.Set, error) {
+	jwksBytes, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to read job %s keyset: %w", keysetType, err)
+	}
+
+	jwks, err := jwk.Parse(jwksBytes)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to parse job %s keyset: %w", keysetType, err)
+	}
+
+	if jwks.Len() == 0 {
+		return nil, fmt.Errorf("Job %s keyset is empty", keysetType)
+	}
+
+	iter := jwks.Keys(ctx)
+	for iter.Next(ctx) {
+		keyI := iter.Pair().Value
+		key, ok := keyI.(jwk.Key)
+		if !ok {
+			return nil, fmt.Errorf("Job %s keyset contains a non-key at index %d", keysetType, iter.Pair().Index)
+		}
+
+		if _, ok = key.Get(jwk.AlgorithmKey); !ok {
+			return nil, fmt.Errorf("Job %s keyset contains a key without an algorithm at index %d. All keys used for signing and verification in the agent must have their `alg` key set", keysetType, iter.Pair().Index)
+		}
+	}
+
+	return jwks, nil
 }
 
 func handlePoolSignals(ctx context.Context, l logger.Logger, pool *agent.AgentPool) chan os.Signal {
@@ -984,7 +1379,7 @@ func handlePoolSignals(ctx context.Context, l logger.Logger, pool *agent.AgentPo
 
 		for sig := range signals {
 			l.Debug("Received signal `%v`", sig)
-			setStatus(fmt.Sprintf("Recieved signal `%v`", sig))
+			setStatus(fmt.Sprintf("Received signal `%v`", sig))
 
 			switch sig {
 			case syscall.SIGQUIT:
@@ -1012,6 +1407,7 @@ func handlePoolSignals(ctx context.Context, l logger.Logger, pool *agent.AgentPo
 func agentStartupHook(log logger.Logger, cfg AgentStartConfig) error {
 	return agentLifecycleHook("agent-startup", log, cfg)
 }
+
 func agentShutdownHook(log logger.Logger, cfg AgentStartConfig) {
 	_ = agentLifecycleHook("agent-shutdown", log, cfg)
 }
@@ -1021,24 +1417,40 @@ func agentShutdownHook(log logger.Logger, cfg AgentStartConfig) {
 // agent logger. Exit status failure is logged and returned for the caller to handle
 func agentLifecycleHook(hookName string, log logger.Logger, cfg AgentStartConfig) error {
 	// search for hook (including .bat & .ps1 files on Windows)
+	hooks := []string{}
 	p, err := hook.Find(cfg.HooksPath, hookName)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Error("Error finding %q hook: %v", hookName, err)
 			return err
 		}
-		return nil
+	} else {
+		hooks = append(hooks, p)
 	}
-	sh, err := shell.New()
+
+	// also search for hook in any additionally provided locations
+	for _, h := range cfg.AdditionalHooksPaths {
+		p, err = hook.Find(h, hookName)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				log.Error("Error finding %q hook: %v", hookName, err)
+			}
+		} else {
+			hooks = append(hooks, p)
+		}
+	}
+
+	// pipe from hook output to logger
+	r, w := io.Pipe()
+	sh, err := shell.New(
+		shell.WithStdout(w),
+		shell.WithLogger(shell.NewWriterLogger(w, !cfg.NoColor, nil)), // for Promptf
+	)
 	if err != nil {
 		log.Error("creating shell for %q hook: %v", hookName, err)
 		return err
 	}
 
-	// pipe from hook output to logger
-	r, w := io.Pipe()
-	sh.Logger = &shell.WriterLogger{Writer: w, Ansi: !cfg.NoColor} // for Promptf
-	sh.Writer = w                                                  // for stdout+stderr
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -1050,15 +1462,107 @@ func agentLifecycleHook(hookName string, log logger.Logger, cfg AgentStartConfig
 		}
 	}()
 
-	// run hook
-	sh.Promptf("%s", p)
-	if err = sh.RunScript(context.Background(), p, nil); err != nil {
-		log.Error("%q hook: %v", hookName, err)
-		return err
-	}
-	w.Close() // goroutine scans until pipe is closed
+	// run hooks
+	for _, p = range hooks {
+		script, err := sh.Script(p)
+		if err != nil {
+			log.Error("%q hook: %v", hookName, err)
+			return err
+		}
+		// For these hooks, hide the interpreter from the "prompt".
+		sh.Promptf("%s", p)
+		if err := script.Run(context.TODO(), shell.ShowPrompt(false)); err != nil {
+			log.Error("%q hook: %v", hookName, err)
+			return err
+		}
+		w.Close() // goroutine scans until pipe is closed
 
-	// wait for hook to finish and output to flush to logger
-	wg.Wait()
+		// wait for hook to finish and output to flush to logger
+		wg.Wait()
+	}
 	return nil
+}
+
+func defaultSocketsPath() string {
+	home, err := osutil.UserHomeDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), "buildkite-sockets")
+	}
+
+	return filepath.Join(home, ".buildkite-agent", "sockets")
+}
+
+// runAgentAPI runs an API socket that can be used to interact with this
+// (top-level) agent. It returns a shutdown function.
+func runAgentAPI(ctx context.Context, l logger.Logger, socketsPath string) (func(), error) {
+	path := agentapi.DefaultSocketPath(socketsPath)
+	// There should be only one Agent API socket per agent process.
+	// If a previous agent crashed and left behind a socket, we can
+	// remove it.
+	os.Remove(path)
+
+	svr, err := agentapi.NewServer(path, l)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't create Agent API server: %w", err)
+	}
+
+	if err := svr.Start(); err != nil {
+		return nil, fmt.Errorf("couldn't start Agent API server: %w", err)
+	}
+
+	// Try to be the leader - no worries if this fails.
+	leaderPath := agentapi.LeaderPath(socketsPath)
+	if err := os.Symlink(path, leaderPath); err == nil {
+		l.Info("Agent API: This agent became leader")
+	}
+
+	// Whoever the leader is, ping them every so often as a health-check.
+	go leaderPinger(ctx, l, path, leaderPath)
+
+	return func() {
+		svr.Shutdown(ctx)
+		if d, err := os.Readlink(leaderPath); err == nil && d == path {
+			os.Remove(leaderPath)
+		}
+	}, nil
+}
+
+// leaderPinger pings the leader socket for liveness, and takes over if it
+// fails.
+func leaderPinger(ctx context.Context, l logger.Logger, path, leaderPath string) {
+	pingLeader := func() error {
+		d, err := os.Readlink(leaderPath)
+		if err != nil {
+			// Not a symlink?
+			return err
+		}
+		if d == path {
+			// It's me! Don't bother pinging.
+			return nil
+		}
+
+		ctx, canc := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer canc()
+
+		cl, err := agentapi.NewClient(ctx, leaderPath)
+		if err != nil {
+			return err
+		}
+		return cl.Ping(ctx)
+	}
+
+	for range time.Tick(100 * time.Millisecond) {
+		if err := pingLeader(); err != nil {
+			l.Warn("Agent API: Leader ping failed, staging coup: %v", err)
+			l.Warn("Agent API: Leader state (locks) has been lost!")
+			os.Remove(leaderPath)
+			os.Symlink(path, leaderPath)
+		}
+	}
+}
+
+func envHasKey(key string) bool {
+	_, ok := os.LookupEnv(key)
+	return ok
+
 }

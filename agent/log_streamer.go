@@ -4,22 +4,35 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"sync"
 	"sync/atomic"
 
+	"github.com/buildkite/agent/v3/api"
 	"github.com/buildkite/agent/v3/logger"
 	"github.com/buildkite/agent/v3/status"
+	"github.com/dustin/go-humanize"
 )
 
+const defaultLogMaxSize = 1024 * 1024 * 1024 // 1 GiB
+
+// Returned from Process after Stop has been called.
+var errStreamerStopped = errors.New("streamer stopped")
+
+// LogStreamerConfig contains configuration options for the log streamer.
 type LogStreamerConfig struct {
 	// How many log streamer workers are running at any one time
 	Concurrency int
 
-	// The maximum size of chunks
-	MaxChunkSizeBytes int
+	// The maximum size of each chunk
+	MaxChunkSizeBytes uint64
+
+	// The maximum size of the log
+	MaxSizeBytes uint64
 }
 
+// LogStreamer divides job log output into chunks (Process), and log streamer
+// workers (goroutines created by Start) receive and upload those chunks.
+// The actual uploading is performed by the callback.
 type LogStreamer struct {
 	// The configuration
 	conf LogStreamerConfig
@@ -31,57 +44,56 @@ type LogStreamer struct {
 	chunksFailedCount int32
 
 	// The callback called when a chunk is ready for upload
-	callback func(context.Context, *LogStreamerChunk) error
+	callback func(context.Context, *api.Chunk) error
 
 	// The queue of chunks that are needing to be uploaded
-	queue chan *LogStreamerChunk
+	queue chan *api.Chunk
 
 	// Total size in bytes of the log
-	bytes int
+	bytes uint64
 
 	// Each chunk is assigned an order
-	order int
+	order uint64
 
-	// Every time we add a job to the queue, we increase the wait group
-	// queue so when the streamer shuts down, we can block until all work
-	// has been added.
-	chunkWaitGroup sync.WaitGroup
+	// Counts workers that are still running
+	workerWG sync.WaitGroup
 
 	// Only allow processing one at a time
 	processMutex sync.Mutex
+
+	// Have we logged a warning about the size?
+	warnedAboutSize bool
+
+	// Have we stopped?
+	stopped bool
 }
 
-type LogStreamerChunk struct {
-	// The contents of the chunk
-	Data string
-
-	// The sequence number of this chunk
-	Order int
-
-	// The byte offset of this chunk
-	Offset int
-
-	// The byte size of this chunk
-	Size int
-}
-
-// Creates a new instance of the log streamer
-func NewLogStreamer(l logger.Logger, cb func(context.Context, *LogStreamerChunk) error, c LogStreamerConfig) *LogStreamer {
+// NewLogStreamer creates a new instance of the log streamer.
+func NewLogStreamer(
+	agentLogger logger.Logger,
+	callback func(context.Context, *api.Chunk) error,
+	conf LogStreamerConfig,
+) *LogStreamer {
 	return &LogStreamer{
-		logger:   l,
-		conf:     c,
-		callback: cb,
-		queue:    make(chan *LogStreamerChunk, 1024),
+		logger:   agentLogger,
+		conf:     conf,
+		callback: callback,
+		queue:    make(chan *api.Chunk, 1024),
 	}
 }
 
-// Spins up x number of log streamer workers
+// Start spins up a number of log streamer workers.
 func (ls *LogStreamer) Start(ctx context.Context) error {
 	if ls.conf.MaxChunkSizeBytes <= 0 {
 		return errors.New("Maximum chunk size must be more than 0. No logs will be sent.")
 	}
 
-	for i := 0; i < ls.conf.Concurrency; i++ {
+	if ls.conf.MaxSizeBytes <= 0 {
+		ls.conf.MaxSizeBytes = defaultLogMaxSize
+	}
+
+	ls.workerWG.Add(ls.conf.Concurrency)
+	for i := range ls.conf.Concurrency {
 		go ls.worker(ctx, i)
 	}
 
@@ -92,106 +104,111 @@ func (ls *LogStreamer) FailedChunks() int {
 	return int(atomic.LoadInt32(&ls.chunksFailedCount))
 }
 
-// Takes the full process output, grabs the portion we don't have, and adds it
-// to the stream queue
-func (ls *LogStreamer) Process(output string) error {
-	bytes := len(output)
-
+// Process streams the output. It returns an error if the output data cannot be
+// processed at all (e.g. the streamer was stopped or a hard limit was reached).
+// Transient failures to upload logs are instead handled in the callback.
+func (ls *LogStreamer) Process(ctx context.Context, output []byte) error {
 	// Only allow one streamer process at a time
 	ls.processMutex.Lock()
+	defer ls.processMutex.Unlock()
 
-	if ls.bytes != bytes {
-		// Grab the part of the log that we haven't seen yet
-		blob := output[ls.bytes:bytes]
-
-		// How many chunks do we have that fit within the MaxChunkSizeBytes?
-		numberOfChunks := int(math.Ceil(float64(len(blob)) / float64(ls.conf.MaxChunkSizeBytes)))
-
-		// Increase the wait group by the amount of chunks we're going
-		// to add
-		ls.chunkWaitGroup.Add(numberOfChunks)
-
-		for i := 0; i < numberOfChunks; i++ {
-			// Find the upper limit of the blob
-			upperLimit := (i + 1) * ls.conf.MaxChunkSizeBytes
-			if upperLimit > len(blob) {
-				upperLimit = len(blob)
-			}
-
-			// Grab the 100kb section of the blob
-			partialChunk := blob[i*ls.conf.MaxChunkSizeBytes : upperLimit]
-
-			// Increment the order
-			ls.order += 1
-
-			// Create the chunk and append it to our list
-			chunk := LogStreamerChunk{
-				Data:   partialChunk,
-				Order:  ls.order,
-				Offset: ls.bytes,
-				Size:   len(partialChunk),
-			}
-
-			ls.queue <- &chunk
-
-			// Save the new amount of bytes
-			ls.bytes += len(partialChunk)
-		}
+	if ls.stopped {
+		return errStreamerStopped
 	}
 
-	ls.processMutex.Unlock()
+	for len(output) > 0 {
+		// Have we exceeded the max size?
+		// (This check is also performed on the server side.)
+		if ls.bytes > ls.conf.MaxSizeBytes && !ls.warnedAboutSize {
+			ls.logger.Warn("The job log has reached %s in size, which has "+
+				"exceeded the maximum size (%s). Further logs may be dropped "+
+				"by the server, and a future version of the agent will stop "+
+				"sending logs at this point.",
+				humanize.IBytes(ls.bytes), humanize.IBytes(ls.conf.MaxSizeBytes))
+			ls.warnedAboutSize = true
+			// In a future version, this will error out, e.g.:
+			//return fmt.Errorf("%w (%d > %d)", errLogExceededMaxSize, ls.bytes, ls.conf.MaxSizeBytes)
+		}
+
+		// The next chunk will be up to MaxChunkSizeBytes in size.
+		size := ls.conf.MaxChunkSizeBytes
+		if lenout := uint64(len(output)); size > lenout {
+			size = lenout
+		}
+
+		// Take the chunk from the start of output, leave the remainder for the
+		// next iteration.
+		ls.order++
+		chunk := &api.Chunk{
+			Data:     output[:size],
+			Sequence: ls.order,
+			Offset:   ls.bytes,
+			Size:     size,
+		}
+		output = output[size:]
+
+		// Stream the chunk onto the queue!
+		select {
+		case ls.queue <- chunk:
+			// Streamed!
+		case <-ctx.Done(): // pack it up
+			return ctx.Err()
+		}
+		ls.bytes += size
+	}
 
 	return nil
 }
 
-// Waits for all the chunks to be uploaded, then shuts down all the workers
-func (ls *LogStreamer) Stop() error {
-	ls.logger.Debug("[LogStreamer] Waiting for all the chunks to be uploaded")
-
-	ls.chunkWaitGroup.Wait()
-
-	ls.logger.Debug("[LogStreamer] Shutting down all workers")
-
-	for n := 0; n < ls.conf.Concurrency; n++ {
-		ls.queue <- nil
+// Stop stops the streamer.
+func (ls *LogStreamer) Stop() {
+	ls.processMutex.Lock()
+	if ls.stopped {
+		ls.processMutex.Unlock()
+		return
 	}
+	ls.stopped = true
+	close(ls.queue)
+	ls.processMutex.Unlock()
 
-	return nil
+	ls.logger.Debug("[LogStreamer] Waiting for workers to shut down")
+	ls.workerWG.Wait()
 }
 
 // The actual log streamer worker
 func (ls *LogStreamer) worker(ctx context.Context, id int) {
 	ls.logger.Debug("[LogStreamer/Worker#%d] Worker is starting...", id)
 
+	defer ls.logger.Debug("[LogStreamer/Worker#%d] Worker has shutdown", id)
+	defer ls.workerWG.Done()
+
 	ctx, setStat, done := status.AddSimpleItem(ctx, fmt.Sprintf("Log Streamer Worker %d", id))
 	defer done()
 	setStat("🏃 Starting...")
 
 	for {
-		setStat("⌚️ Waiting for chunk")
+		setStat("⌚️ Waiting for a chunk")
 
 		// Get the next chunk (pointer) from the queue. This will block
 		// until something is returned.
-		chunk := <-ls.queue
-
-		// If the next chunk is nil, then there is no more work to do
-		if chunk == nil {
-			break
+		var chunk *api.Chunk
+		select {
+		case chunk = <-ls.queue:
+			if chunk == nil { // channel was closed
+				return
+			}
+		case <-ctx.Done(): // pack it up
+			return
 		}
 
-		setStat("📨 Passing chunk to callback")
+		setStat("📨 Uploading chunk")
 
 		// Upload the chunk
 		err := ls.callback(ctx, chunk)
 		if err != nil {
 			atomic.AddInt32(&ls.chunksFailedCount, 1)
 
-			ls.logger.Error("Giving up on uploading chunk %d, this will result in only a partial build log on Buildkite", chunk.Order)
+			ls.logger.Error("Giving up on uploading chunk %d, this will result in only a partial build log on Buildkite", chunk.Sequence)
 		}
-
-		// Signal to the chunkWaitGroup that this one is done
-		ls.chunkWaitGroup.Done()
 	}
-
-	ls.logger.Debug("[LogStreamer/Worker#%d] Worker has shutdown", id)
 }

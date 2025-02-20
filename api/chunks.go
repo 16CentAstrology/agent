@@ -9,10 +9,10 @@ import (
 
 // Chunk represents a Buildkite Agent API Chunk
 type Chunk struct {
-	Data     string
-	Sequence int
-	Offset   int
-	Size     int
+	Data     []byte
+	Sequence uint64
+	Offset   uint64
+	Size     uint64
 }
 
 // Uploads the chunk to the Buildkite Agent API. This request sends the
@@ -21,13 +21,13 @@ func (c *Client) UploadChunk(ctx context.Context, jobId string, chunk *Chunk) (*
 	// Create a compressed buffer of the log content
 	body := &bytes.Buffer{}
 	gzipper := gzip.NewWriter(body)
-	gzipper.Write([]byte(chunk.Data))
+	gzipper.Write(chunk.Data)
 	if err := gzipper.Close(); err != nil {
 		return nil, err
 	}
 
 	// Pass most params as query
-	u := fmt.Sprintf("jobs/%s/chunks?sequence=%d&offset=%d&size=%d", jobId, chunk.Sequence, chunk.Offset, chunk.Size)
+	u := fmt.Sprintf("jobs/%s/chunks?sequence=%d&offset=%d&size=%d", railsPathEscape(jobId), chunk.Sequence, chunk.Offset, chunk.Size)
 	req, err := c.newFormRequest(ctx, "POST", u, body)
 	if err != nil {
 		return nil, err

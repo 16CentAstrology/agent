@@ -1,8 +1,8 @@
 //go:build tools
 // +build tools
 
-package tools
+package main
 
 import (
-	_ "github.com/rjeczalik/interfaces/cmd/interfacer"
+	_ "github.com/Khan/genqlient/generate"
 )

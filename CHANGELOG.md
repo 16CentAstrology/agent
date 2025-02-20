@@ -5,6 +5,1275 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [v3.92.1](https://github.com/buildkite/agent/tree/v3.92.1) (2025-02-13)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.92.0...v3.92.1)
+
+### Removed
+
+- Revert "Ensure the log streamer respects forced shutdown of the agent" [#3191](https://github.com/buildkite/agent/pull/3191) (@wolfeidau)
+- Revert "Fix data race on exitImmediately" [#3190](https://github.com/buildkite/agent/pull/3190) (@wolfeidau)
+
+### Dependabot
+- The usual updates: [#3188](https://github.com/buildkite/agent/pull/3188), [#3185](https://github.com/buildkite/agent/pull/3185) (@dependabot[bot])
+
+> [!NOTE]
+> Reverted [#3180](https://github.com/buildkite/agent/pull/3180) and [#3187](https://github.com/buildkite/agent/pull/3187) as this change introduced a bug which resulted in truncated log output. Will re-think this fix and push it out again in another release after we do some more testing.
+
+## [v3.92.0](https://github.com/buildkite/agent/tree/v3.92.0) (2025-02-12)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.91.0...v3.92.0)
+
+# Fixed
+- Ensure the log streamer respects forced shutdown of the agent [#3180](https://github.com/buildkite/agent/pull/3180) (@wolfeidau)
+- Fix data race on exitImmediately [#3187](https://github.com/buildkite/agent/pull/3187) (@DrJosh9000)
+- Reduce timeout for these two operations to avoid holding up compute [#3177](https://github.com/buildkite/agent/pull/3177) (@wolfeidau)
+- Timeout waiting for client containers [#3172](https://github.com/buildkite/agent/pull/3172) (@DrJosh9000)
+- Clean up worker pool implementation [#3171](https://github.com/buildkite/agent/pull/3171) (@DrJosh9000)
+
+### Internal
+- rm bazel-*, add to .gitignore [#3178](https://github.com/buildkite/agent/pull/3178) (@DrJosh9000)
+- Speed up needlessly slow tests [#3179](https://github.com/buildkite/agent/pull/3179) (@DrJosh9000)
+
+### Dependabot
+- The usual updates: [#3184](https://github.com/buildkite/agent/pull/3184), [#3182](https://github.com/buildkite/agent/pull/3182), [#3174](https://github.com/buildkite/agent/pull/3174), [#3173](https://github.com/buildkite/agent/pull/3173), [#3176](https://github.com/buildkite/agent/pull/3176) (@dependabot[bot])
+
+## [v3.91.0](https://github.com/buildkite/agent/tree/v3.91.0) (2025-01-28)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.90.0...v3.91.0)
+
+### Changed
+- Jitter within ping, status, log loops [#3164](https://github.com/buildkite/agent/pull/3164) (@DrJosh9000)
+
+### Fixed
+- Roko v1.3.1 [#3157](https://github.com/buildkite/agent/pull/3157) (@moskyb)
+- Better plugin checkout logging [#3166](https://github.com/buildkite/agent/pull/3166) (@DrJosh9000)
+
+### Internal
+- Add /.buildkite dir for Dockerfile updates [#3162](https://github.com/buildkite/agent/pull/3162) (@DrJosh9000)
+
+<details>
+<summary><h3>Dependency bumps</h3></summary>
+
+- Bump the cloud-providers group with 6 updates [#3167](https://github.com/buildkite/agent/pull/3167) (@dependabot[bot])
+- Bump gopkg.in/DataDog/dd-trace-go.v1 from 1.70.3 to 1.71.0 [#3168](https://github.com/buildkite/agent/pull/3168) (@dependabot[bot])
+- Bump the container-images group across 5 directories with 2 updates [#3169](https://github.com/buildkite/agent/pull/3169) (@dependabot[bot])
+- Bump the otel group with 9 updates [#3159](https://github.com/buildkite/agent/pull/3159) (@dependabot[bot])
+- Bump the container-images group across 6 directories with 2 updates [#3161](https://github.com/buildkite/agent/pull/3161) (@dependabot[bot])
+- Bump the cloud-providers group across 1 directory with 7 updates [#3160](https://github.com/buildkite/agent/pull/3160) (@dependabot[bot])
+- Bump gopkg.in/DataDog/dd-trace-go.v1 from 1.70.1 to 1.70.3 [#3155](https://github.com/buildkite/agent/pull/3155) (@dependabot[bot])
+- Bump the golang-x group across 1 directory with 5 updates [#3151](https://github.com/buildkite/agent/pull/3151) (@dependabot[bot])
+- Bump buildkite/agent-base from `e46604b` to `2520343` in /packaging/docker/ubuntu-22.04 in the container-images group across 1 directory [#3146](https://github.com/buildkite/agent/pull/3146) (@dependabot[bot])
+
+</details>
+
+## [v3.90.0](https://github.com/buildkite/agent/tree/v3.90.0) (2025-01-10)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.89.0...v3.90.0)
+
+### Changed
+- Use exponential in acquire-job mode when job acquisition fails [#3153](https://github.com/buildkite/agent/pull/3153) (@moskyb)
+
+### Fixed
+- Fix nil pointer deref in certain Kubernetes environments [#3150](https://github.com/buildkite/agent/pull/3150) (@DrJosh9000)
+
+## [v3.89.0](https://github.com/buildkite/agent/tree/v3.89.0) (2025-01-06)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.88.0...v3.89.0)
+
+### Added
+- Adding support for Additional Hooks Paths [#3124](https://github.com/buildkite/agent/pull/3124) (@CerealBoy)
+
+### Internal
+- Bump the container-images group across 5 directories with 2 updates [#3143](https://github.com/buildkite/agent/pull/3143) (@dependabot[bot])
+- Update golang.org/x/net [#3140](https://github.com/buildkite/agent/pull/3140) (@yob)
+
+## [v3.88.0](https://github.com/buildkite/agent/tree/v3.88.0) (2024-12-18)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.87.1...v3.88.0)
+
+### Changed
+- Prefix fatal error message with 'buildkite-agent:' [#3135](https://github.com/buildkite/agent/pull/3135) (@jordandcarter)
+- Notify when host and bootstrap agent paths mismatch [#3123](https://github.com/buildkite/agent/pull/3123) (@jordandcarter)
+
+### Fixed
+- Enable process debug logging [#3134](https://github.com/buildkite/agent/pull/3134) (@patrobinson)
+- Ignore empty submodule clone configs [#3122](https://github.com/buildkite/agent/pull/3122) (@DrJosh9000)
+- fix: allow for empty files on hook check [#3117](https://github.com/buildkite/agent/pull/3117) (@nzspambot)
+- Parse more standalone `$` cases as literal `$`s and not variable expansions:
+  - Bump github.com/buildkite/go-pipeline from 0.13.2 to 0.13.3 [#3137](https://github.com/buildkite/agent/pull/3137) (@dependabot[bot])
+  - Bump github.com/buildkite/interpolate from 0.1.4 to 0.1.5 [#3138](https://github.com/buildkite/agent/pull/3138) (@dependabot[bot])
+
+### Dependabot
+- [#3136](https://github.com/buildkite/agent/pull/3136), [#3127](https://github.com/buildkite/agent/pull/3127), [#3129](https://github.com/buildkite/agent/pull/3129), [#3128](https://github.com/buildkite/agent/pull/3128), [#3130](https://github.com/buildkite/agent/pull/3130), [#3132](https://github.com/buildkite/agent/pull/3132), [#3131](https://github.com/buildkite/agent/pull/3131), [#3133](https://github.com/buildkite/agent/pull/3133), [#3125](https://github.com/buildkite/agent/pull/3125), [#3119](https://github.com/buildkite/agent/pull/3119), [#3120](https://github.com/buildkite/agent/pull/3120), [#3121](https://github.com/buildkite/agent/pull/3121), [#3116](https://github.com/buildkite/agent/pull/3116), [#3115](https://github.com/buildkite/agent/pull/3115) (@dependabot[bot])
+
+## [v3.87.1](https://github.com/buildkite/agent/tree/v3.87.1) (2024-11-26)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.87.0...v3.87.1)
+
+### Fixed
+- Fix duplicated output when debug is enabled [#3108](https://github.com/buildkite/agent/pull/3108) (@DrJosh9000)
+
+### Changed
+- Small change to annotation example [#3106](https://github.com/buildkite/agent/pull/3106) (@PriyaSudip)
+
+### Internal
+- Use Ubuntu codename labels to refer to base images [#3103](https://github.com/buildkite/agent/pull/3103) (@DrJosh9000)
+
+### Dependabot
+- The usual updates: [#3111](https://github.com/buildkite/agent/pull/3111), [#3112](https://github.com/buildkite/agent/pull/3112), [#3110](https://github.com/buildkite/agent/pull/3110), [#3109](https://github.com/buildkite/agent/pull/3109), [#3113](https://github.com/buildkite/agent/pull/3113), [#3104](https://github.com/buildkite/agent/pull/3104), [#3098](https://github.com/buildkite/agent/pull/3098), [#3102](https://github.com/buildkite/agent/pull/3102), [#3097](https://github.com/buildkite/agent/pull/3097), [#3101](https://github.com/buildkite/agent/pull/3101) (@dependabot[bot])
+
+## [v3.87.0](https://github.com/buildkite/agent/tree/v3.87.0) (2024-11-18)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.86.0...v3.87.0)
+
+### Changed
+- Remove signal reason unable\_to\_verify\_signature and replace with signature\_rejected [#3094](https://github.com/buildkite/agent/pull/3094) (@jordandcarter)
+
+### Fixed
+- Don't surface expected stderr output from git rev-parse [#3095](https://github.com/buildkite/agent/pull/3095) (@CerealBoy)
+- Add retry around NewS3Client [#3092](https://github.com/buildkite/agent/pull/3092) (@l-suzuki)
+
+### Internal
+- Soft fail upload of packages docker images [#3093](https://github.com/buildkite/agent/pull/3093) (@tommeier)
+- Switch to agent-base images [#3091](https://github.com/buildkite/agent/pull/3091) (@DrJosh9000)
+
+## [v3.86.0](https://github.com/buildkite/agent/tree/v3.86.0) (2024-11-12)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.85.1...v3.86.0)
+
+### Added
+- Add `force-grace-period-seconds` argument to `step cancel` command [#3084](https://github.com/buildkite/agent/pull/3084) (@mitchbne)
+
+### Changed
+- Rename env var to `BUILDKITE_STEP_CANCEL_FORCE_GRACE_PERIOD_SECONDS` [#3087](https://github.com/buildkite/agent/pull/3087) (@mitchbne)
+- Drop Ubuntu 18.04, add Ubuntu 24.04 [#3078](https://github.com/buildkite/agent/pull/3078) (@DrJosh9000)
+
+### Fixed
+- Handle older version of remote ref error message [#3082](https://github.com/buildkite/agent/pull/3082) (@steveh)
+
+### Internal
+- dependabot: Group Dockerfiles [#3077](https://github.com/buildkite/agent/pull/3077) (@DrJosh9000)
+- Various dependency bumps: [#3086](https://github.com/buildkite/agent/pull/3086), [#3085](https://github.com/buildkite/agent/pull/3085), [#3081](https://github.com/buildkite/agent/pull/3081), [#3079](https://github.com/buildkite/agent/pull/3079) (@dependabot[bot])
+
+## [v3.85.1](https://github.com/buildkite/agent/tree/v3.85.1) (2024-11-09)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.85.0...v3.85.1)
+
+### Fixed
+- Fix another nil pointer panic in k8s mode [#3075](https://github.com/buildkite/agent/pull/3075) (@DrJosh9000)
+- Fix nil pointer panic in k8s mode [#3074](https://github.com/buildkite/agent/pull/3074) (@DrJosh9000)
+
+## [v3.85.0](https://github.com/buildkite/agent/tree/v3.85.0) (2024-11-07)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.84.0...v3.85.0)
+
+### Added
+- Create `buildkite-agent step cancel` subcommand [#3070](https://github.com/buildkite/agent/pull/3070) (@mitchbne)
+
+### Changed
+- Support installing specific versions via script [#3069](https://github.com/buildkite/agent/pull/3069) (@jordandcarter)
+- Promote polyglot-hooks experiment to default [#3063](https://github.com/buildkite/agent/pull/3063) (@DrJosh9000)
+- Use sha256 in the checksum verification [#3062](https://github.com/buildkite/agent/pull/3062) (@esenmarti)
+- Minor update to the 'redactor' CLI command examples. [#3060](https://github.com/buildkite/agent/pull/3060) (@gilesgas)
+
+### Fixed
+- Fix zzglob import path [#3057](https://github.com/buildkite/agent/pull/3057) (@DrJosh9000)
+
+### Internal
+- Shell package cleanup [#3068](https://github.com/buildkite/agent/pull/3068) (@DrJosh9000)
+- Remove .editorconfig [#3064](https://github.com/buildkite/agent/pull/3064) (@DrJosh9000)
+- Various dependency bumps: [#3066](https://github.com/buildkite/agent/pull/3066) [#3065](https://github.com/buildkite/agent/pull/3065) [#3067](https://github.com/buildkite/agent/pull/3067) (@dependabot[bot])
+
+## [v3.84.0](https://github.com/buildkite/agent/tree/v3.84.0) (2024-10-28)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.83.1...v3.84.0)
+
+### Added
+- Add command for canceling a running a build [#2958](https://github.com/buildkite/agent/pull/2958) (@dannymidnight)
+- Add tini-static to alpine images [#3054](https://github.com/buildkite/agent/pull/3054) (@DrJosh9000)
+
+### Fixed
+- Implement several documentation improvements to the Agent (for the Buildkite Docs). [#3043](https://github.com/buildkite/agent/pull/3043) (@gilesgas)
+- Allow token to be empty if graphql-token is provided [#3051](https://github.com/buildkite/agent/pull/3051) (@jordandcarter)
+- Fix multiline secret redaction when output with \r\n [#3050](https://github.com/buildkite/agent/pull/3050) (@DrJosh9000)
+- k8s exec: Perform liveness check of clients [#3045](https://github.com/buildkite/agent/pull/3045) (@DrJosh9000)
+- Fix request headers for multipart [#3042](https://github.com/buildkite/agent/pull/3042) (@DrJosh9000)
+
+### Internal
+- install.sh tidyups [#3032](https://github.com/buildkite/agent/pull/3032) (@DrJosh9000)
+- Parallel container image uploads [#3035](https://github.com/buildkite/agent/pull/3035) (@DrJosh9000)
+- Various dependency bumps: [#3058](https://github.com/buildkite/agent/pull/3058), [#3026](https://github.com/buildkite/agent/pull/3026), [#3055](https://github.com/buildkite/agent/pull/3055), [#3056](https://github.com/buildkite/agent/pull/3056), [#3048](https://github.com/buildkite/agent/pull/3048), [#3047](https://github.com/buildkite/agent/pull/3047), [#3049](https://github.com/buildkite/agent/pull/3049), [#3036](https://github.com/buildkite/agent/pull/3036), [#3041](https://github.com/buildkite/agent/pull/3041), [#3040](https://github.com/buildkite/agent/pull/3040), [#3037](https://github.com/buildkite/agent/pull/3037), [#3039](https://github.com/buildkite/agent/pull/3039) (@dependabot[bot])
+
+## [v3.83.1](https://github.com/buildkite/agent/tree/v3.83.0) (2024-10-10)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.83.0...v3.83.1)
+
+### Fixed
+- Fix artifact up/download timeouts [#3033](https://github.com/buildkite/agent/pull/3033) (@DrJosh9000)
+
+## [v3.83.0](https://github.com/buildkite/agent/tree/v3.83.0) (2024-10-08)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.82.1...v3.83.0)
+
+### Added
+- Exit with code 94 if a mirror lock times out [#3023](https://github.com/buildkite/agent/pull/3023) (@DrJosh9000)
+- Add support for oidc aws session tags [#3015](https://github.com/buildkite/agent/pull/3015) (@sj26)
+- Support for future multipart artifact uploads [#2991](https://github.com/buildkite/agent/pull/2991) (@DrJosh9000)
+
+### Fixed
+- Tweak BUILDKITE_IGNORED_ENV handling [#3029](https://github.com/buildkite/agent/pull/3029) (@DrJosh9000)
+- BUG FIX: Ensure Build Title Is Correct When Checkout Is Skipped [#3024](https://github.com/buildkite/agent/pull/3024) (@123sarahj123)
+- Ensure all string slice args have whitespace cleaned off of each element [#3021](https://github.com/buildkite/agent/pull/3021) (@moskyb)
+- Fix data race on worker stop [#3016](https://github.com/buildkite/agent/pull/3016) (@DrJosh9000)
+
+### Internal
+- Migrate Agent Pipeline to Agent Cluster [#3018](https://github.com/buildkite/agent/pull/3018) (@matthewborden)
+- Refactor the various agent HTTP clients [#3017](https://github.com/buildkite/agent/pull/3017) (@DrJosh9000)
+- Dependabot bumps to busybox [#3025](https://github.com/buildkite/agent/pull/3025), golang.org/x packages [#3027](https://github.com/buildkite/agent/pull/3027), cloud provider packages [#3028](https://github.com/buildkite/agent/pull/3028), [#3019](https://github.com/buildkite/agent/pull/3019), [#3013](https://github.com/buildkite/agent/pull/3013), [#3009](https://github.com/buildkite/agent/pull/3009), DataDog packages [#3010](https://github.com/buildkite/agent/pull/3010) Ubuntu [#3012](https://github.com/buildkite/agent/pull/3012), [#3008](https://github.com/buildkite/agent/pull/3008), and go-pipeline [#3014](https://github.com/buildkite/agent/pull/3014) (@dependabot[bot])
+
+## [v3.82.1](https://github.com/buildkite/agent/tree/v3.82.1) (2024-09-23)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.82.0...v3.82.1)
+
+### Fixed
+- Work around issue with http2 connections on linux not cleanly closing, causing agents to be marked as lost [#3005](https://github.com/buildkite/agent/pull/3005) (@patrobinson)
+
+## [v3.82.0](https://github.com/buildkite/agent/tree/v3.82.0) (2024-09-17)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.81.0...v3.82.0)
+
+### Added
+- Emit HTTP timings [#2989](https://github.com/buildkite/agent/pull/2989) (@patrobinson)
+- Add JSON-format env file, allow annotations from pre-bootstrap [#2988](https://github.com/buildkite/agent/pull/2988) (@DrJosh9000)
+
+### Changed
+- Remove mitchellh/go-homedir; it's archived [#2990](https://github.com/buildkite/agent/pull/2990) (@mckern)
+
+### Fixed
+- Use job tokens for log chunk uploads [#2986](https://github.com/buildkite/agent/pull/2986) (@tessereth)
+- Temporarily pin kubectl version [#2997](https://github.com/buildkite/agent/pull/2997) (@patrobinson)
+- Prefer $HOME on all platforms [#3000](https://github.com/buildkite/agent/pull/3000) (@DrJosh9000)
+- Bump github.com/buildkite/interpolate from 0.1.3 to 0.1.4 [#3002](https://github.com/buildkite/agent/pull/3002)  (Fixes a bug in nested variable interpolation https://github.com/buildkite/interpolate/pull/15)
+
+### Internal
+- Dependabot churn: [#2992](https://github.com/buildkite/agent/pull/2992) [#2993](https://github.com/buildkite/agent/pull/2993) [#2995](https://github.com/buildkite/agent/pull/2995) [#2996](https://github.com/buildkite/agent/pull/2996) [#2979](https://github.com/buildkite/agent/pull/2979) [#2981](https://github.com/buildkite/agent/pull/2981)
+- Consolidate artifact functionality in internal package [#2985](https://github.com/buildkite/agent/pull/2985) (@DrJosh9000)
+
+
+## [v3.81.0](https://github.com/buildkite/agent/tree/v3.81.0) (2024-09-10)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.80.0...v3.81.0)
+
+### Fixed
+- Fix for region discovery issue with aws sdkv2 when running in ec2 [#2977](https://github.com/buildkite/agent/pull/2977) (@wolfeidau)
+- Explain verification-failure-behavior in more detail [#2984](https://github.com/buildkite/agent/pull/2984) (@DrJosh9000)
+
+### Added
+- Add sha256 checksum output to the formatting options [#2974](https://github.com/buildkite/agent/pull/2974) (@patrobinson)
+
+### Internal
+- Dependabot churn: [#2978](https://github.com/buildkite/agent/pull/2978), [#2980](https://github.com/buildkite/agent/pull/2980)
+
+## [v3.80.0](https://github.com/buildkite/agent/tree/v3.80.0) (2024-09-06)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.79.0...v3.80.0)
+
+### Added
+- Support AWS KMS for signing and verifying pipelines [#2960](https://github.com/buildkite/agent/pull/2960) (@wolfeidau)
+
+### Changed
+- Allow `buildkite-agent` to run a job when JWK is unavailable but failure behaviour is set to `warn` [#2945](https://github.com/buildkite/agent/pull/2945) (@CheeseStick)
+
+### Fixed
+- coda-content-type pass content-type to the server when specified [#2967](https://github.com/buildkite/agent/pull/2967) (@SorchaAbel)
+- Updated to support only ECC_NIST_P256 keyspec for initial release [#2973](https://github.com/buildkite/agent/pull/2973) (@wolfeidau)
+
+### Internal
+- Dependabot churn: [#2964](https://github.com/buildkite/agent/pull/2964), [#2965](https://github.com/buildkite/agent/pull/2965), [#2952](https://github.com/buildkite/agent/pull/2952), [#2972](https://github.com/buildkite/agent/pull/2972), [#2963](https://github.com/buildkite/agent/pull/2963)
+
+## [v3.79.0](https://github.com/buildkite/agent/tree/v3.79.0) (2024-08-29)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.78.0...v3.79.0)
+
+### Fixed
+- Fix error when hook cannot be run due to missing interpreter [#2948](https://github.com/buildkite/agent/pull/2948) (@mcncl)
+
+### Added
+- Support for multiple trace context encodings [#2947](https://github.com/buildkite/agent/pull/2947) (@DrJosh9000)
+
+### Internal
+- Bump github.com/buildkite/go-pipeline from 0.11.0 to 0.12.0 [#2959](https://github.com/buildkite/agent/pull/2959) (@wolfeidau)
+- Dependabot churn: [#2951](https://github.com/buildkite/agent/pull/2951), [#2955](https://github.com/buildkite/agent/pull/2955), [#2949](https://github.com/buildkite/agent/pull/2949), [#2956](https://github.com/buildkite/agent/pull/2956), [#2954](https://github.com/buildkite/agent/pull/2954), [#2950](https://github.com/buildkite/agent/pull/2950), [#2953](https://github.com/buildkite/agent/pull/2953)
+
+## [v3.78.0](https://github.com/buildkite/agent/tree/v3.78.0) (2024-08-20)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.77.0...v3.78.0)
+
+### Fixed
+- fix for layout issues with log messages [#2933](https://github.com/buildkite/agent/pull/2933) (@wolfeidau)
+- Prevent Cancel from running when a k8s job is cancelled already [#2935](https://github.com/buildkite/agent/pull/2935) (@CerealBoy)
+- k8s: Unconditionally set `BUILDKITE_AGENT_ACCESS_TOKEN` [#2942](https://github.com/buildkite/agent/pull/2942) (@DrJosh9000)
+
+### Changed
+- Add a bit more context to the debugging for failing signature verify [#2926](https://github.com/buildkite/agent/pull/2926) (@wolfeidau)
+- Update description for the 'priority' option for the 'buildkite-agent annotate' command. [#2934](https://github.com/buildkite/agent/pull/2934) (@gilesgas)
+
+### Internal
+Dependabot churn: [#2927](https://github.com/buildkite/agent/pull/2927), [#2928](https://github.com/buildkite/agent/pull/2928), [#2929](https://github.com/buildkite/agent/pull/2929), [#2930](https://github.com/buildkite/agent/pull/2930), [#2931](https://github.com/buildkite/agent/pull/2931), [#2937](https://github.com/buildkite/agent/pull/2937), [#2939](https://github.com/buildkite/agent/pull/2939), [#2940](https://github.com/buildkite/agent/pull/2940), [#2943](https://github.com/buildkite/agent/pull/2943)
+
+## [v3.77.0](https://github.com/buildkite/agent/tree/v3.77.0) (2024-08-08)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.76.2...v3.77.0)
+
+### Added
+- Added `core` package: `core` makes some core agent functions accessible as a library [#2915](https://github.com/buildkite/agent/pull/2915) (@DrJosh9000)
+
+### Fixed
+- Write hooks into new tempdir [#2925](https://github.com/buildkite/agent/pull/2925) (@DrJosh9000)
+- Fix default endpoint string in `api` and `core` [#2923](https://github.com/buildkite/agent/pull/2923) (@DrJosh9000)
+
+### Internal
+Dependabot churn: [#2919](https://github.com/buildkite/agent/pull/2919), [#2922](https://github.com/buildkite/agent/pull/2922), [#2921](https://github.com/buildkite/agent/pull/2921), [#2918](https://github.com/buildkite/agent/pull/2918), [#2917](https://github.com/buildkite/agent/pull/2917)
+
+## [v3.76.2](https://github.com/buildkite/agent/tree/v3.76.2) (2024-08-01)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.76.1...v3.76.2)
+
+> [!NOTE]
+> v3.76.0 fixed an issue which caused the HTTP client in the agent to fall back to HTTP/1.1, see [#2908](https://github.com/buildkite/agent/pull/2908). If you need to disable HTTP/2.0 in your environment you can do this using the `--no-http2` flag or matching configuration option.
+
+### Fixed
+- Only override TLSClientConfig if set [#2913](https://github.com/buildkite/agent/pull/2913) (@DrJosh9000)
+
+## [v3.76.1](https://github.com/buildkite/agent/tree/v3.76.1) (2024-07-31)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.76.0...v3.76.1)
+
+> [!NOTE]
+> v3.76.0 fixed an issue which caused the HTTP client in the agent to fall back to HTTP/1.1, see [#2908](https://github.com/buildkite/agent/pull/2908). If you need to disable HTTP/2.0 in your environment you can do this using the `--no-http2` flag or matching configuration option.
+
+### Changed
+- Pass cancel grace period to bootstrap [#2910](https://github.com/buildkite/agent/pull/2910) (@DrJosh9000)
+
+## [v3.76.0](https://github.com/buildkite/agent/tree/v3.76.0) (2024-07-31)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.75.1...v3.76.0)
+
+> [!NOTE]
+> This release fixed an issue which caused the HTTP client in the agent to fall back to HTTP/1.1, see [#2908](https://github.com/buildkite/agent/pull/2908). If you need to disable HTTP/2.0 in your environment you can do this using the `--no-http2` flag or matching configuration option.
+
+### Changed
+- fix enable http/2 by default as intended by flags [#2908](https://github.com/buildkite/agent/pull/2908) (@wolfeidau)
+
+### Fixed
+- Let artifact phase and post-command run in grace period [#2899](https://github.com/buildkite/agent/pull/2899) (@DrJosh9000)
+
+### Internal
+- Dependabot updates: [#2902](https://github.com/buildkite/agent/pull/2902), [#2907](https://github.com/buildkite/agent/pull/2907), [#2903](https://github.com/buildkite/agent/pull/2903), [#2904](https://github.com/buildkite/agent/pull/2904), [#2901](https://github.com/buildkite/agent/pull/2901), [#2905](https://github.com/buildkite/agent/pull/2905), [#2896](https://github.com/buildkite/agent/pull/2896), [#2897](https://github.com/buildkite/agent/pull/2897)
+
+## [v3.75.1](https://github.com/buildkite/agent/tree/v3.75.1) (2024-07-22)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.75.0...v3.75.1)
+
+### Fixed
+- Fix downloaded artifact permissions [#2894](https://github.com/buildkite/agent/pull/2894) (@DrJosh9000)
+
+## [v3.75.0](https://github.com/buildkite/agent/tree/v3.75.0) (2024-07-18)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.74.1...v3.75.0)
+
+### Added
+- Introduce `riscv64` architecture [#2877](https://github.com/buildkite/agent/pull/2877) (@TimePrinciple)
+- Add a SHA256SUMS file [#2890](https://github.com/buildkite/agent/pull/2890) (@DrJosh9000)
+
+### Changed
+- Reject more secrets [#2884](https://github.com/buildkite/agent/pull/2884) (@DrJosh9000)
+- Include repo name in Packages image path [#2871](https://github.com/buildkite/agent/pull/2871) (@swebb)
+
+### Fixed
+- Fix some common artifact download bugs [#2878](https://github.com/buildkite/agent/pull/2878) (@DrJosh9000)
+- SUP-2343: remove "retry" example from "buildkite-agent step get" as not valid [#2879](https://github.com/buildkite/agent/pull/2879) (@tomowatt)
+
+### Internal
+- Log in to buildkite packages right before pushing images [#2892](https://github.com/buildkite/agent/pull/2892) (@moskyb)
+- Update LICENSE.txt [#2885](https://github.com/buildkite/agent/pull/2885) (@wooly)
+- Remove Packagecloud agent publish steps from agent pipeline [#2873](https://github.com/buildkite/agent/pull/2873) (@tommeier)
+- Release Docker images on Buildkite Packages [#2837](https://github.com/buildkite/agent/pull/2837) (@swebb)
+- Fix the OIDC login for Packages [#2875](https://github.com/buildkite/agent/pull/2875) (@swebb)
+- Fix the Packages registry name [#2874](https://github.com/buildkite/agent/pull/2874) (@swebb)
+- Fix image name when pushing to Buildkite packages [#2870](https://github.com/buildkite/agent/pull/2870) (@swebb)
+- Dependabot updates: [#2888](https://github.com/buildkite/agent/pull/2888), [#2887](https://github.com/buildkite/agent/pull/2887), [#2882](https://github.com/buildkite/agent/pull/2882), [#2883](https://github.com/buildkite/agent/pull/2883), [#2880](https://github.com/buildkite/agent/pull/2880)
+
+## [v3.74.1](https://github.com/buildkite/agent/tree/v3.74.1) (2024-07-03)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.74.0...v3.74.1)
+
+### Added
+- Log public signing key thumbprint and signed step payload [#2853](https://github.com/buildkite/agent/pull/2853) (@jordandcarter)
+
+### Fixed
+- Don't try to early-set env vars [#2852](https://github.com/buildkite/agent/pull/2852) (@DrJosh9000)
+- Convey env vars between k8s containers [#2851](https://github.com/buildkite/agent/pull/2851) (@DrJosh9000)
+- Fix typo in "kuberentes" [#2836](https://github.com/buildkite/agent/pull/2836) (@moskyb)
+
+### Internal
+- Make the graphql endpoint for `buildkite-agent tool sign` configurable [#2841](https://github.com/buildkite/agent/pull/2841) (@moskyb)
+- Dependabot updates: [#2863](https://github.com/buildkite/agent/pull/2863), [#2862](https://github.com/buildkite/agent/pull/2862), [#2857](https://github.com/buildkite/agent/pull/2857), [#2860](https://github.com/buildkite/agent/pull/2860), [#2864](https://github.com/buildkite/agent/pull/2864), [#2856](https://github.com/buildkite/agent/pull/2856), [#2867](https://github.com/buildkite/agent/pull/2867), [#2846](https://github.com/buildkite/agent/pull/2846), [#2848](https://github.com/buildkite/agent/pull/2848), [#2847](https://github.com/buildkite/agent/pull/2847), [#2845](https://github.com/buildkite/agent/pull/2845), [#2840](https://github.com/buildkite/agent/pull/2840), [#2844](https://github.com/buildkite/agent/pull/2844), [#2842](https://github.com/buildkite/agent/pull/2842), [#2843](https://github.com/buildkite/agent/pull/2843), [#2849](https://github.com/buildkite/agent/pull/2849)
+
+## [v3.74.0](https://github.com/buildkite/agent/tree/v3.74.0) (2024-06-11)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.73.1...v3.74.0)
+
+### Security
+- ⚠️ When using `artifact download`, artifacts that were uploaded with paths containing `..` will no longer be able to traverse up from the destination path. This change is unlikely to break the vast majority of pipelines, however if you are relying on `..` for path traversal and cannot fix your pipeline, you can enable the new experiment `allow-artifact-path-traversal` [#2815](https://github.com/buildkite/agent/pull/2815) (@DrJosh9000)
+- Redact Job API token like other env vars [#2834](https://github.com/buildkite/agent/pull/2834) (@DrJosh9000)
+
+### Added
+- Add logs to allowed-[repositories|plugins] [#2810](https://github.com/buildkite/agent/pull/2810) (@jakubm-canva)
+
+### Fixed
+- Fix error in k8s after job completes [#2804](https://github.com/buildkite/agent/pull/2804) (@DrJosh9000)
+
+### Changed
+- PTY rows/cols increased [#2806](https://github.com/buildkite/agent/pull/2806) (@pda)
+- Dont sign initial steps with interpolations [#2813](https://github.com/buildkite/agent/pull/2813) (@moskyb)
+
+### Internal
+- kubernetes-exec is now a flag [#2814](https://github.com/buildkite/agent/pull/2814) (@DrJosh9000)
+- shell logger: Use fmt functions once [#2805](https://github.com/buildkite/agent/pull/2805) (@DrJosh9000)
+- Update deprecated import [#2811](https://github.com/buildkite/agent/pull/2811) (@DrJosh9000)
+- Use Rand per-test in agent/plugin/error_test.go [#2795](https://github.com/buildkite/agent/pull/2795) (@moskyb)
+- Publish debian and rpm packages to Buildkite Packages [#2824](https://github.com/buildkite/agent/pull/2824) [#2826](https://github.com/buildkite/agent/pull/2826) [#2831](https://github.com/buildkite/agent/pull/2831) [#2830](https://github.com/buildkite/agent/pull/2830) [#2833](https://github.com/buildkite/agent/pull/2833) (@sj26)
+- Dependabot updates: [#2809](https://github.com/buildkite/agent/pull/2809), [#2816](https://github.com/buildkite/agent/pull/2816), [#2800](https://github.com/buildkite/agent/pull/2800), [#2801](https://github.com/buildkite/agent/pull/2801), [#2802](https://github.com/buildkite/agent/pull/2802), [#2803](https://github.com/buildkite/agent/pull/2803), [#2787](https://github.com/buildkite/agent/pull/2787), [#2798](https://github.com/buildkite/agent/pull/2798), [#2808](https://github.com/buildkite/agent/pull/2808), [#2827](https://github.com/buildkite/agent/pull/2827) [#2817](https://github.com/buildkite/agent/pull/2817), [#2818](https://github.com/buildkite/agent/pull/2818), [#2819](https://github.com/buildkite/agent/pull/2819), [#2822](https://github.com/buildkite/agent/pull/2822), [#2829](https://github.com/buildkite/agent/pull/2829), [#2832](https://github.com/buildkite/agent/pull/2832), [#2835](https://github.com/buildkite/agent/pull/2835)
+
+## [v3.73.1](https://github.com/buildkite/agent/tree/v3.73.1) (2024-05-23)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.73.0...v3.73.1)
+
+### Fixed
+
+- Fix redaction when no initial redactors are present [#2794](https://github.com/buildkite/agent/pull/2794) (@moskyb)
+- Fix an issue where intermittently, commands run by the agent would fail with `error: fork/exec: operation not permitted` [#2791](https://github.com/buildkite/agent/pull/2791) (@moskyb)
+- Fix an issue where using cancel grace period would not work if signal grace period was not set [#2788](https://github.com/buildkite/agent/pull/2788) (@tessereth)
+- Emit a better error if the job API token is missing [#2789](https://github.com/buildkite/agent/pull/2789) (@moskyb)
+
+### Internal
+- Bump docker/library/golang from `b1e05e2` to `f43c6f0` in /.buildkite [#2785](https://github.com/buildkite/agent/pull/2785)
+- Upgrade math/rand to v2 [#2792](https://github.com/buildkite/agent/pull/2792) (@DrJosh9000)
+
+## [v3.73.0](https://github.com/buildkite/agent/tree/v3.73.0) (2024-05-16)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.72.0...v3.73.0)
+
+### Changed
+- Return earlier from non-get credential actions [#2776](https://github.com/buildkite/agent/pull/2776) (@moskyb)
+- Remove the --debug-http flag from the git credential helper [#2772](https://github.com/buildkite/agent/pull/2772) (@moskyb)
+- Write "unknown exit status" in expanded section [#2783](https://github.com/buildkite/agent/pull/2783) (@DrJosh9000)
+
+### Fixed
+- Fix poorly-timed timestamp insertions [#2778](https://github.com/buildkite/agent/pull/2778) (@DrJosh9000)
+- Fix typo in 'buildkite-agent redactor add' description. [#2777](https://github.com/buildkite/agent/pull/2777) (@gilesgas)
+- Fix checkout race condition on GitHub PR builds [#2735](https://github.com/buildkite/agent/pull/2735) (@rianmcguire)
+- Expand buildkite-agent secret command with a more useful description. [#2775](https://github.com/buildkite/agent/pull/2775) (@gilesgas)
+
+### Internal
+- Dependabot updates: [#2779](https://github.com/buildkite/agent/pull/2779), [#2782](https://github.com/buildkite/agent/pull/2782), [#2781](https://github.com/buildkite/agent/pull/2781), [#2771](https://github.com/buildkite/agent/pull/2771), [#2770](https://github.com/buildkite/agent/pull/2770), [#2769](https://github.com/buildkite/agent/pull/2769), [#2767](https://github.com/buildkite/agent/pull/2767)
+
+## [v3.72.0](https://github.com/buildkite/agent/tree/v3.72.0) (2024-05-06)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.71.0...v3.72.0)
+
+### Added
+- Add status.json endpoint to health check endpoints [#2759](https://github.com/buildkite/agent/pull/2759) (@moskyb)
+
+### Changed
+- Make failed job acquisitions return a specific exit code (27) [#2762](https://github.com/buildkite/agent/pull/2762) (@moskyb)
+
+### Internal
+- Refactor agent integration test API [#2764](https://github.com/buildkite/agent/pull/2764) (@moskyb)
+- Replace calls to %v for error values in fmt.Errorf with %w [#2763](https://github.com/buildkite/agent/pull/2763) (@moskyb)
+- Release pipeline changes:
+  - Pass AWS creds into docker containers [#2761](https://github.com/buildkite/agent/pull/2761) (@amu-g)
+  - release: Pass AWS credentials to Docker containers [#2760](https://github.com/buildkite/agent/pull/2760) (@lucaswilric)
+  - Use oidc roles in release pipelines [#2755](https://github.com/buildkite/agent/pull/2755) (@amu-g)
+- Dependency updates [#2752](https://github.com/buildkite/agent/pull/2752), [#2751](https://github.com/buildkite/agent/pull/2751), [#2750](https://github.com/buildkite/agent/pull/2750), [#2739](https://github.com/buildkite/agent/pull/2739), [#2740](https://github.com/buildkite/agent/pull/2740), [#2753](https://github.com/buildkite/agent/pull/2753), [#2757](https://github.com/buildkite/agent/pull/2757)
+
+## [v3.71.0](https://github.com/buildkite/agent/tree/v3.71.0) (2024-04-30)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.70.0...v3.71.0)
+
+## Fixed
+- Make preferring runtime env default off [#2747](https://github.com/buildkite/agent/pull/2747) (@patrobinson)
+- Use roko to retry k8s socket dial [#2746](https://github.com/buildkite/agent/pull/2746) (@DrJosh9000)
+- Tweak ETXTBSY retry, and be helpful for ENOENT [#2736](https://github.com/buildkite/agent/pull/2736) (@DrJosh9000)
+
+### Added
+- Experiment: override zero exit code on cancel [#2741](https://github.com/buildkite/agent/pull/2741) (@DrJosh9000)
+
+## [v3.70.0](https://github.com/buildkite/agent/tree/v3.70.0) (2024-04-18)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.69.0...v3.70.0)
+
+### Added
+- Add BUILDKITE_STEP_KEY as a json logger field [#2730](https://github.com/buildkite/agent/pull/2730) (@joeljeske)
+- New flag `--spawn-per-cpu` The number of agents to spawn per cpu in parallel (mutually exclusive with --spawn) [#2711](https://github.com/buildkite/agent/pull/2711) (@mmlb)
+- Upload agent images to GHCR [#2724](https://github.com/buildkite/agent/pull/2724) (@DrJosh9000)
+
+### Fixed
+- Update go-pipeline to v0.7.0 (Correctly upload cache `name` and `size` command step settings, support `cache: false`) [#2731](https://github.com/buildkite/agent/pull/2731) (@jordandcarter)
+- Show descriptive error when annotation body size exceeds maximum when using stdin [#2725](https://github.com/buildkite/agent/pull/2725) (@rianmcguire)
+
+### Internal
+- Dependabot updates [#2726](https://github.com/buildkite/agent/pull/2726) [#2727](https://github.com/buildkite/agent/pull/2727) [#2728](https://github.com/buildkite/agent/pull/2728) [#2729](https://github.com/buildkite/agent/pull/2729)
+
+## [v3.69.0](https://github.com/buildkite/agent/tree/v3.69.0) (2024-04-10)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.68.0...v3.69.0)
+
+### Added
+- Environment variable to control cache volume mounting on hosted agents [#2720](https://github.com/buildkite/agent/pull/2720) [#2722](https://github.com/buildkite/agent/pull/2722) (@moskyb)
+
+### Internal
+
+- @dependabot, hard at work as usual [#2717](https://github.com/buildkite/agent/pull/2717) [#2721](https://github.com/buildkite/agent/pull/2721) [#2719](https://github.com/buildkite/agent/pull/2719) [#2718](https://github.com/buildkite/agent/pull/2718) [#2715](https://github.com/buildkite/agent/pull/2715) (@dependabot)
+
+## [v3.68.0](https://github.com/buildkite/agent/tree/v3.68.0) (2024-04-04)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.67.0...v3.68.0)
+
+### Changed
+- Ensure that disabled warnings get passed to the logger in kubernetes agents [#2698](https://github.com/buildkite/agent/pull/2698) (@moskyb)
+- Handle warnings from go-pipeline `Parse` [#2675](https://github.com/buildkite/agent/pull/2675) (@DrJosh9000)
+- Don't run pre-exit hooks without command phase [#2707](https://github.com/buildkite/agent/pull/2707) (@DrJosh9000)
+
+### Internal
+- Dependabot updates [#2714](https://github.com/buildkite/agent/pull/2714), [#2712](https://github.com/buildkite/agent/pull/2712), [#2709](https://github.com/buildkite/agent/pull/2709), [#2708](https://github.com/buildkite/agent/pull/2708), [#2663](https://github.com/buildkite/agent/pull/2663)
+
+## [v3.67.0](https://github.com/buildkite/agent/tree/v3.67.0) (2024-03-28)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.66.0...v3.67.0)
+
+### Changed
+- De-experiment isolated plugin checkout [#2694](https://github.com/buildkite/agent/pull/2694) (@triarius)
+- Always set git commit [#2676](https://github.com/buildkite/agent/pull/2676) (@moskyb)
+- Silence Job API Log Group [#2690](https://github.com/buildkite/agent/pull/2690), [#2695](https://github.com/buildkite/agent/pull/2695) (@triarius)
+- Set a user agent when downloading most artifacts [#2671](https://github.com/buildkite/agent/pull/2671) (@yob)
+- Extend default signal grace period to 9 seconds [#2696](https://github.com/buildkite/agent/pull/2696) (@triarius)
+
+### Fixed
+- Fix commit resolution error message [#2699](https://github.com/buildkite/agent/pull/2699) (@moskyb)
+- Update outdated option name [#2693](https://github.com/buildkite/agent/pull/2693) (@fruechel-canva)
+
+### Internal
+- Add a User-Agent header when uploading artifacts to Buildkite's default location [#2672](https://github.com/buildkite/agent/pull/2672) (@yob)
+- Break from artifact upload retry loop on more 4xx responses [#2697](https://github.com/buildkite/agent/pull/2697) (@SorchaAbel)
+- Use roko.DoFunc [#2689](https://github.com/buildkite/agent/pull/2689) (@DrJosh9000)
+- Dependabot up to its usual tricks: [#2704](https://github.com/buildkite/agent/pull/2704), [#2701](https://github.com/buildkite/agent/pull/2701), [#2702](https://github.com/buildkite/agent/pull/2702), [#2666](https://github.com/buildkite/agent/pull/2666), [#2691](https://github.com/buildkite/agent/pull/2691), [#2692](https://github.com/buildkite/agent/pull/2692)
+
+## [v3.66.0](https://github.com/buildkite/agent/tree/v3.66.0) (2024-03-12)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.65.0...v3.66.0)
+
+### Added
+- Extend graceful cancellation to all job phases [#2654](https://github.com/buildkite/agent/pull/2654) (@david-poirier)
+- Add cli command to redact secrets and redact secrets from Pipelines Secrets [#2660](https://github.com/buildkite/agent/pull/2660) (@triarius)
+- Configurably optional warnings [#2674](https://github.com/buildkite/agent/pull/2674) (@moskyb)
+
+### Fixed
+- Update `tool sign` usage description to match actual command [#2677](https://github.com/buildkite/agent/pull/2677) (@CheeseStick)
+- Remove experimental callout on signing flags (it wasn't experimental) [#2668](https://github.com/buildkite/agent/pull/2668) (@moskyb)
+
+### Changed
+- Promote `avoid-recursive-trap` experiment [#2669](https://github.com/buildkite/agent/pull/2669) (@triarius)
+- Remove requests logging in the Job API unless if in debug mode [#2662](https://github.com/buildkite/agent/pull/2662) (@triarius)
+- Force GitHub URLs to use HTTPS if the agent's git-credential-helper if it is enabled [#2655](https://github.com/buildkite/agent/pull/2655) (@triarius)
+
+### Internal
+- @dependabot's been hard at work: [#2681](https://github.com/buildkite/agent/pull/2681) [#2686](https://github.com/buildkite/agent/pull/2686) [#2679](https://github.com/buildkite/agent/pull/2679) [#2685](https://github.com/buildkite/agent/pull/2685) [#2682](https://github.com/buildkite/agent/pull/2682) [#2678](https://github.com/buildkite/agent/pull/2678) [#2680](https://github.com/buildkite/agent/pull/2680) [#2684](https://github.com/buildkite/agent/pull/2684)
+- Update mime types [#2661](https://github.com/buildkite/agent/pull/2661) (@triarius)
+
+## [v3.65.0](https://github.com/buildkite/agent/tree/v3.65.0) (2024-02-23)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.64.0...v3.65.0)
+
+### Added
+- Add flag for setting annotation priority [#2644](https://github.com/buildkite/agent/pull/2644) (@matthewborden)
+
+### Changed
+- Chill out credential helper logging [#2650](https://github.com/buildkite/agent/pull/2650) (@moskyb)
+
+### Internal
+- Fix test of JobAPI requiring socket set [#2651](https://github.com/buildkite/agent/pull/2651) (@triarius)
+
+## [v3.64.0](https://github.com/buildkite/agent/tree/v3.64.0) (2024-02-21)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.63.1...v3.64.0)
+
+### Added
+- De-experimentify Job API [#2646](https://github.com/buildkite/agent/pull/2646) (@triarius)
+- Add explicit queue flag to the agent [#2648](https://github.com/buildkite/agent/pull/2648) (@moskyb)
+- Add an info log of which experiments are known and enabled on agent start [#2645](https://github.com/buildkite/agent/pull/2645) (@triarius)
+- Add cli command to read from Pipelines Secrets [Not available to customers yet] [#2647](https://github.com/buildkite/agent/pull/2647) (@triarius)
+
+### Fixed
+- YAML marshaling of `wait`, `block`, and `input` scalar steps (when using `tool sign` or `pipeline upload --format=yaml`) [#2640](https://github.com/buildkite/agent/pull/2640) (@DrJosh9000)
+- Packaging: Use separate repos for each package type [#2636](https://github.com/buildkite/agent/pull/2636) (@sj26)
+
+### Internal
+- Various dependency updates: [#2643](https://github.com/buildkite/agent/pull/2643), [#2642](https://github.com/buildkite/agent/pull/2642) [#2641](https://github.com/buildkite/agent/pull/2641), [#2638](https://github.com/buildkite/agent/pull/2638), [#2640](https://github.com/buildkite/agent/pull/2640), [#2639](https://github.com/buildkite/agent/pull/2639), [#2637](https://github.com/buildkite/agent/pull/2637)
+
+## [v3.63.1](https://github.com/buildkite/agent/tree/v3.63.1) (2024-02-16)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.63.0...v3.63.1)
+
+### Fixed
+- Fix NPE when decoding token response [#2634](https://github.com/buildkite/agent/pull/2634) (@moskyb)
+
+## [v3.63.0](https://github.com/buildkite/agent/tree/v3.63.0) (2024-02-14)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.62.0...v3.63.0)
+
+> [!WARNING]
+> This release has two potentially breaking changes in the way environment
+> variables are interpolated.
+
+* Interpolation on Windows should be done in a case-_in_sensitive manner to be
+  compatible with Batch scripts and Powershell. This was working correctly up
+  until some refactoring in v3.59.0.
+
+  For example, this pipeline:
+
+  ```yaml
+  env:
+    FOO: bar
+  steps:
+  - command: echo $Foo $FOO
+  ```
+
+  should now be correctly interpolated on Windows as:
+
+  ```yaml
+  env:
+    FOO: bar
+  steps:
+  - command: echo bar bar
+  ```
+
+  Interpolation on other platforms is unchanged.
+
+* Our [documented interpolation rules](https://buildkite.com/docs/pipelines/environment-variables#environment-variable-precedence)
+  implies that variables from the agent environment have higher precedence than
+  variables defined by the job environment ("we merge in some of the variables
+  from the agent environment").
+
+  Suppose the agent environment contains `FOO=runtime_foo`. The pipeline
+
+  ```yaml
+  env:
+    BAR: $FOO
+    FOO: pipeline_foo
+  steps:
+  - command: echo hello world
+  ```
+
+  would in previous releases be interpolated as:
+
+  ```yaml
+  env:
+    BAR: runtime_foo
+    FOO: pipeline_foo
+  steps:
+  - command: echo hello world
+  ```
+
+  On the other hand, the pipeline
+
+  ```yaml
+  env:
+    FOO: pipeline_foo
+    BAR: $FOO
+  steps:
+  - command: echo hello world
+  ```
+
+  would be interpolated to become
+
+  ```yaml
+  env:
+    FOO: pipeline_foo
+    BAR: pipeline_foo
+  steps:
+  - command: echo hello world
+  ```
+
+  We think this is inconsistent with the agent environment taking precedence,
+  and if users would like to interpolate `$FOO` as the value of the pipeline
+  level definition of `FOO`, they should ensure the agent environment does not
+  contain `FOO`.
+
+### Added
+- BK github app git credentials helper [#2599](https://github.com/buildkite/agent/pull/2599) (@moskyb)
+
+### Fixed
+- Fix pipeline interpolation case sensitivity on Windows, and runtime environment variable precedence [#2624](https://github.com/buildkite/agent/pull/2624) (@triarius)
+- Fix environment variable changes in hooks logged incorrectly [#2621](https://github.com/buildkite/agent/pull/2621) (@triarius)
+- Fix Powershell hooks on windows [#2613](https://github.com/buildkite/agent/pull/2613) (@triarius)
+- Fix bug where unauthorised register was retrying erroneously [#2614](https://github.com/buildkite/agent/pull/2614) (@moskyb)
+- Fix docs for --allowed-environment-variables [#2598](https://github.com/buildkite/agent/pull/2598) (@tessereth)
+
+### Upgraded
+- The agent is now built with Go 1.22 [#2631](https://github.com/buildkite/agent/pull/2631) (@moskyb)
+
+### Internal
+- Add a PR template [#2601](https://github.com/buildkite/agent/pull/2601) (@triarius)
+- Move check from upload-release-steps.sh to pipeline.yml [#2617](https://github.com/buildkite/agent/pull/2617) (@DrJosh9000)
+- build-github-release.sh tidyups [#2619](https://github.com/buildkite/agent/pull/2619) (@DrJosh9000)
+- Various dependency updates [#2625](https://github.com/buildkite/agent/pull/2625), [#2630](https://github.com/buildkite/agent/pull/2630), [#2627](https://github.com/buildkite/agent/pull/2627), [#2626](https://github.com/buildkite/agent/pull/2626), [#2622](https://github.com/buildkite/agent/pull/2622), [#2605](https://github.com/buildkite/agent/pull/2605), [#2609](https://github.com/buildkite/agent/pull/2609), [#2603](https://github.com/buildkite/agent/pull/2603), [#2602](https://github.com/buildkite/agent/pull/2602), [#2604](https://github.com/buildkite/agent/pull/2604), [#2606](https://github.com/buildkite/agent/pull/2606), [#2616](https://github.com/buildkite/agent/pull/2616), [#2610](https://github.com/buildkite/agent/pull/2610), [#2611](https://github.com/buildkite/agent/pull/2611)
+
+## [v3.62.0](https://github.com/buildkite/agent/tree/v3.62.0) (2024-01-23)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.61.0...v3.62.0)
+
+### Added
+- Add more fields to job logger [#2578](https://github.com/buildkite/agent/pull/2578) (@ChrisBr)
+- Environment Variable allowlisting [#2539](https://github.com/buildkite/agent/pull/2539) (@moskyb, originally @CheeseStick)
+
+### Fixed
+- When the server returns a 401, stop retrying and bail out [#2569](https://github.com/buildkite/agent/pull/2569) (@SorchaAbel)
+- Retry for 24 hours instead of forever [#2588](https://github.com/buildkite/agent/pull/2588) (@tessereth)
+- Documentation updates [#2590](https://github.com/buildkite/agent/pull/2590) (@moskyb), [#2591](https://github.com/buildkite/agent/pull/2591) (@moskyb), [#2589](https://github.com/buildkite/agent/pull/2589) (@moskyb)
+
+### Internal
+- Various @dependabot[bot] updates [#2587](https://github.com/buildkite/agent/pull/2587), [#2594](https://github.com/buildkite/agent/pull/2594), [#2596](https://github.com/buildkite/agent/pull/2596), [#2595](https://github.com/buildkite/agent/pull/2595), [#2593](https://github.com/buildkite/agent/pull/2593), [#2592](https://github.com/buildkite/agent/pull/2592), [#2585](https://github.com/buildkite/agent/pull/2585), [#2584](https://github.com/buildkite/agent/pull/2584), [#2583](https://github.com/buildkite/agent/pull/2583), [#2573](https://github.com/buildkite/agent/pull/2573), [#2582](https://github.com/buildkite/agent/pull/2582), [#2572](https://github.com/buildkite/agent/pull/2572), [#2571](https://github.com/buildkite/agent/pull/2571), [#2575](https://github.com/buildkite/agent/pull/2575), [#2580](https://github.com/buildkite/agent/pull/2580), [#2567](https://github.com/buildkite/agent/pull/2567), [#2566](https://github.com/buildkite/agent/pull/2566), [#2563](https://github.com/buildkite/agent/pull/2563), [#2562](https://github.com/buildkite/agent/pull/2562), [#2564](https://github.com/buildkite/agent/pull/2564), [#2565](https://github.com/buildkite/agent/pull/2565)
+
+## [v3.61.0](https://github.com/buildkite/agent/tree/v3.61.0) (2023-12-14)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.60.1...v3.61.0)
+
+### Added
+- Add more debug logging and error wrapping for running processes [#2543](https://github.com/buildkite/agent/pull/2543) (@triarius)
+- Enable overriding buildkite-agent url in `install.ps1` [#1805](https://github.com/buildkite/agent/pull/1805) (@staticfloat)
+
+### Fixed
+- Buildkite build script is broken due to missing version default value [#2559](https://github.com/buildkite/agent/pull/2559) (@amir-khatibzadeh)
+- Update go-pipeline to v0.3.2 (fixes parsing pipelines that contain YAML aliases used as mapping keys) [#2560](https://github.com/buildkite/agent/pull/2560) (@DrJosh9000)
+
+### Changed
+- Alpine image updated from 3.18.5 to 3.19.0 [#2545](https://github.com/buildkite/agent/pull/2545), [#2549](https://github.com/buildkite/agent/pull/2549), [#2550](https://github.com/buildkite/agent/pull/2550), [#2551](https://github.com/buildkite/agent/pull/2551)
+
+### Internal
+- Make it clear these are not leaked credentials [#2554](https://github.com/buildkite/agent/pull/2554) (@sj26)
+- Various other @dependabot[bot] updates [#2553](https://github.com/buildkite/agent/pull/2553), [#2544](https://github.com/buildkite/agent/pull/2544), [#2548](https://github.com/buildkite/agent/pull/2548), [#2552](https://github.com/buildkite/agent/pull/2552), [#2547](https://github.com/buildkite/agent/pull/2547)
+
+
+## [v3.60.1](https://github.com/buildkite/agent/tree/v3.60.1) (2023-12-06)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.60.0...v3.60.1)
+
+### Security
+- Bump docker/library/golang from 1.21.4 to 1.21.5 in /.buildkite [#2542](https://github.com/buildkite/agent/pull/2542)
+
+### Fixed
+- Fix typo in environment variable name for allowed-plugins [#2526](https://github.com/buildkite/agent/pull/2526) (@moskyb)
+- Fix environment variable interpolation into command step labels [#2540](https://github.com/buildkite/agent/pull/2540) (@triarius)
+
+### Internal
+- Refactor hook wrapper writing [#2505](https://github.com/buildkite/agent/pull/2505) (@triarius)
+- Use os.RemoveAll in cleanup [#2538](https://github.com/buildkite/agent/pull/2538) (@DrJosh9000)
+- Dependencies [#2537](https://github.com/buildkite/agent/pull/2537) [#2536](https://github.com/buildkite/agent/pull/2536) [#2500](https://github.com/buildkite/agent/pull/2500) [#2528](https://github.com/buildkite/agent/pull/2528) [#2529](https://github.com/buildkite/agent/pull/2529) [#2533](https://github.com/buildkite/agent/pull/2533) [#2532](https://github.com/buildkite/agent/pull/2532) [#2534](https://github.com/buildkite/agent/pull/2534) [#2535](https://github.com/buildkite/agent/pull/2535)
+
+
+## [v3.60.0](https://github.com/buildkite/agent/tree/v3.60.0) (2023-11-29)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.59.0...v3.60.0)
+
+Signed pipelines is now GA! Check out the docs [here](https://buildkite.com/docs/agent/v3/signed-pipelines) if you want a little more zero-trust mixed into your pipelines.
+
+### Added
+- Signed Pipelines goes GA! 🎉 [#2492](https://github.com/buildkite/agent/pull/2492) [#2521](https://github.com/buildkite/agent/pull/2521) [#2522](https://github.com/buildkite/agent/pull/2522) (@moskyb + @triarius)
+
+### Changed
+- Insert extra timestamps after a timeout [#2447](https://github.com/buildkite/agent/pull/2447) (@DrJosh9000)
+- Log the max size warning once [#2497](https://github.com/buildkite/agent/pull/2497) (@DrJosh9000)
+- MetaDataSetCommand: retry longer (exponential backoff) [#2514](https://github.com/buildkite/agent/pull/2514) (@pda)
+- Humanize bytes to IEC (1024 → KiB etc) not SI (1000 → KB etc) [#2513](https://github.com/buildkite/agent/pull/2513) (@pda)
+
+### Internal
+- More log streamer cleanups [#2498](https://github.com/buildkite/agent/pull/2498) (@DrJosh9000)
+- Add a helpful note to security researchers [#2520](https://github.com/buildkite/agent/pull/2520) (@DrJosh9000)
+- Update Go to 1.21 [#2284](https://github.com/buildkite/agent/pull/2284) (@triarius + @moskyb)
+- Dependabot's making us all look bad at our jobs: [#2501](https://github.com/buildkite/agent/pull/2501) [#2499](https://github.com/buildkite/agent/pull/2499) [#2515](https://github.com/buildkite/agent/pull/2515) [#2509](https://github.com/buildkite/agent/pull/2509) [#2502](https://github.com/buildkite/agent/pull/2502) [#2516](https://github.com/buildkite/agent/pull/2516) [#2517](https://github.com/buildkite/agent/pull/2517) [#2496](https://github.com/buildkite/agent/pull/2496) [#2493](https://github.com/buildkite/agent/pull/2493) [#2495](https://github.com/buildkite/agent/pull/2495) [#2494](https://github.com/buildkite/agent/pull/2494) [#2504](https://github.com/buildkite/agent/pull/2504)
+
+## [v3.59.0](https://github.com/buildkite/agent/tree/v3.59.0) (2023-11-09)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.58.0...v3.59.0)
+
+### Security
+- This release is built with Go 1.20.11, which includes fixes for two vulnerabilities in file path handling on Windows (CVE-2023-45283, CVE-2023-45284). [#2486](https://github.com/buildkite/agent/pull/2486)
+
+### Changed
+- Experimental: Signed Pipelines
+  - Allow omitting the key ID when signing pipelines [#2481](https://github.com/buildkite/agent/pull/2481) (@triarius)
+  - Remove Org and Pipeline slugs from pipeline invariants and update the signing tool to use the GraphQL API [#2479](https://github.com/buildkite/agent/pull/2479) (@triarius)
+  - Add key.Validate call [#2488](https://github.com/buildkite/agent/pull/2488) (@DrJosh9000)
+- Use zzglob.MultiGlob to process multiple globs simultaneously, and stop sending GlobPath with artifact upload [#2472](https://github.com/buildkite/agent/pull/2472) (@DrJosh9000)
+
+### Internal
+- Migrate usage of internal/{pipeline,ordered,jwkutil} to go-pipeline [#2489](https://github.com/buildkite/agent/pull/2489) (@moskyb)
+- Update bintest to v3.2.0 to resolve ETXTBSY race condition in tests [#2480](https://github.com/buildkite/agent/pull/2480) (@DrJosh9000)
+- Fix race in header times streamer [#2485](https://github.com/buildkite/agent/pull/2485), [#2487](https://github.com/buildkite/agent/pull/2487) (@DrJosh9000)
+- Various dependency updates [#2484](https://github.com/buildkite/agent/pull/2484), [#2482](https://github.com/buildkite/agent/pull/2482)
+
+## [v3.58.0](https://github.com/buildkite/agent/tree/v3.58.0) (2023-11-02)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.57.0...v3.58.0)
+
+### Added
+- Add allowed-plugin param to enable plugins allow-list [#2471](https://github.com/buildkite/agent/pull/2471) (@jakubm-canva)
+- New experiment: `pty-raw` avoids LF→CRLF mapping by setting PTY to raw mode [#2453](https://github.com/buildkite/agent/pull/2453) (@pda)
+- Experimental: Signed Pipelines
+  - Add some pipeline invariants to the signature and create a cli subcommand to sign a pipeline [#2457](https://github.com/buildkite/agent/pull/2457) (@triarius)
+  - Add log group headers and timestamps to job verification success and failure logs [#2461](https://github.com/buildkite/agent/pull/2461) (@triarius)
+
+### Fixed
+- Fix checkout of short commit hashes [#2465](https://github.com/buildkite/agent/pull/2465) (@triarius)
+- Parallelise artifact collection [#2456](https://github.com/buildkite/agent/pull/2456) (@DrJosh9000), [#2477](https://github.com/buildkite/agent/pull/2477) (@DrJosh9000)
+- Log warning about short vars once [#2454](https://github.com/buildkite/agent/pull/2454) (@DrJosh9000)
+
+### Internal
+- Reduce header regexps [#2135](https://github.com/buildkite/agent/pull/2135) (@DrJosh9000)
+- Various dependency updates: [#2469](https://github.com/buildkite/agent/pull/2469), [#2468](https://github.com/buildkite/agent/pull/2468), [#2467](https://github.com/buildkite/agent/pull/2467), [#2463](https://github.com/buildkite/agent/pull/2463), [#2450](https://github.com/buildkite/agent/pull/2450), [#2460](https://github.com/buildkite/agent/pull/2460), [#2459](https://github.com/buildkite/agent/pull/2459), [#2458](https://github.com/buildkite/agent/pull/2458)
+
+## [v3.57.0](https://github.com/buildkite/agent/tree/v3.57.0) (2023-10-19)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.56.0...v3.57.0)
+
+### Added
+- Experimental: Signed Pipelines
+  - Signing build matrices [#2440](https://github.com/buildkite/agent/pull/2440) [#2429](https://github.com/buildkite/agent/pull/2429) [#2426](https://github.com/buildkite/agent/pull/2426) [#2425](https://github.com/buildkite/agent/pull/2425) [#2391](https://github.com/buildkite/agent/pull/2391) [#2395](https://github.com/buildkite/agent/pull/2395) (@DrJosh9000)
+  - Add debug logs for job verification [#2439](https://github.com/buildkite/agent/pull/2439) (@DrJosh9000)
+  - Reduce information in verification errors [#2431](https://github.com/buildkite/agent/pull/2431) (@DrJosh9000)
+  - Separate step/pipeline env vars for job validation [#2428](https://github.com/buildkite/agent/pull/2428) (@DrJosh9000)
+  - Signing config cleanup [#2420](https://github.com/buildkite/agent/pull/2420) [#2427](https://github.com/buildkite/agent/pull/2427) (@moskyb)
+  - Fix verifying jobs with no plugins [#2419](https://github.com/buildkite/agent/pull/2419) (@DrJosh9000)
+  - Use canonicalised JSON as signature payload [#2416](https://github.com/buildkite/agent/pull/2416) (@DrJosh9000)
+  - Add utility for generating signing and verification keys [#2415](https://github.com/buildkite/agent/pull/2415) [#2422](https://github.com/buildkite/agent/pull/2422) (@moskyb)
+
+### Changed
+- Revert "Upgrade pre-installed packages in docker images" and Pin docker images by digest [#2430](https://github.com/buildkite/agent/pull/2430) (@triarius)
+
+### Internal
+- Use docker image bases from ECR public gallery [#2423](https://github.com/buildkite/agent/pull/2423) [#2424](https://github.com/buildkite/agent/pull/2424) (@triarius + @moskyb)
+- Add CODEOWNERS file [#2444](https://github.com/buildkite/agent/pull/2444) (@moskyb)
+- Push agent packages to Packagecloud [#2438](https://github.com/buildkite/agent/pull/2438) [#2441](https://github.com/buildkite/agent/pull/2441) [#2443](https://github.com/buildkite/agent/pull/2443) [#2442](https://github.com/buildkite/agent/pull/2442) (@sj26)
+- Test clicommand config completeness [#2414](https://github.com/buildkite/agent/pull/2414) (@moskyb)
+- As always, the cosmic background radiation of dependabot updates. Thanks dependabot! [#2435](https://github.com/buildkite/agent/pull/2435) [#2434](https://github.com/buildkite/agent/pull/2434) [#2433](https://github.com/buildkite/agent/pull/2433) [#2432](https://github.com/buildkite/agent/pull/2432) [#2421](https://github.com/buildkite/agent/pull/2421) [#2418](https://github.com/buildkite/agent/pull/2418) [#2417](https://github.com/buildkite/agent/pull/2417)
+
+## [v3.56.0](https://github.com/buildkite/agent/tree/v3.56.0) (2023-10-05)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.55.0...v3.56.0)
+
+### Security
+- Upgrade libc packages in Ubuntu 22.04 docker image to those patched for [CVE-2023-4911](https://ubuntu.com/security/CVE-2023-4911) [#2410](https://github.com/buildkite/agent/pull/2410) (@triarius)
+
+### Added
+- Add `allow-repositories` param to enable repository allow-listing [#2361](https://github.com/buildkite/agent/pull/2361) (@david-poirier)
+
+### Changed
+- Upgrade pre-installed packages in docker images [#2410](https://github.com/buildkite/agent/pull/2410) (@triarius)
+- Add Matrix parsing [#2382](https://github.com/buildkite/agent/pull/2382) (@DrJosh9000)
+- Add `EXPERIMENTAL:` to the help text for all pipeline signing flags [#2412](https://github.com/buildkite/agent/pull/2412) (@moskyb)
+
+### Fixed
+- Fix parsing pipelines what use a string as the skip key in a matrix adjustment [#2407](https://github.com/buildkite/agent/pull/2407) (@moskyb)
+
+### Internal
+- Fix flaky TestLockFileRetriesAndTimesOut [#2392](https://github.com/buildkite/agent/pull/2392) (@DrJosh9000)
+- Fix apt install awscli [#2390](https://github.com/buildkite/agent/pull/2390) (@moskyb)
+- Fix incorrect check in a test 😅 [#2381](https://github.com/buildkite/agent/pull/2381) (@DrJosh9000)
+- Run createrepo_c on ubuntu [#2385](https://github.com/buildkite/agent/pull/2385) [#2389](https://github.com/buildkite/agent/pull/2389) (@moskyb)
+- Update dependabot config to use groups [#2384](https://github.com/buildkite/agent/pull/2384) (@moskyb)
+- Fix some typos in code comments [#2380](https://github.com/buildkite/agent/pull/2380) (@testwill)
+
+And (a slightly larger?) than usual amount of  updates [#2369](https://github.com/buildkite/agent/pull/2369) [#2371](https://github.com/buildkite/agent/pull/2371) [#2372](https://github.com/buildkite/agent/pull/2372) [#2373](https://github.com/buildkite/agent/pull/2373) [#2377](https://github.com/buildkite/agent/pull/2377) [#2378](https://github.com/buildkite/agent/pull/2378) [#2383](https://github.com/buildkite/agent/pull/2383) [#2386](https://github.com/buildkite/agent/pull/2386) [#2387](https://github.com/buildkite/agent/pull/2387) [#2397](https://github.com/buildkite/agent/pull/2397) [#2398](https://github.com/buildkite/agent/pull/2398) [#2399](https://github.com/buildkite/agent/pull/2399) [#2400](https://github.com/buildkite/agent/pull/2400) [#2401](https://github.com/buildkite/agent/pull/2401) [#2402](https://github.com/buildkite/agent/pull/2402) [#2403](https://github.com/buildkite/agent/pull/2403) [#2405](https://github.com/buildkite/agent/pull/2405)
+
+
+## [v3.55.0](https://github.com/buildkite/agent/tree/v3.55.0) (2023-09-14)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.54.0...v3.55.0)
+
+### Fixed
+- Annotations created with contexts that contain `.` can now be removed [#2365](https://github.com/buildkite/agent/pull/2365) (@DrJosh9000)
+
+### Changed
+- Add a full agent version which includes the commit [#2283](https://github.com/buildkite/agent/pull/2283) (@triarius)
+
+## [v3.54.0](https://github.com/buildkite/agent/tree/v3.54.0) (2023-09-05)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.53.0...v3.54.0)
+
+> ⚠️ We're adjusting how the set of supported OS versions changes over time.
+> For the details, see [#2354](https://github.com/buildkite/agent/pull/2354).
+
+### Added
+- New experiment `use-zzglob`: uses a different library for resolving glob patterns in `buildkite-agent artifact upload` [#2341](https://github.com/buildkite/agent/pull/2341) (@DrJosh9000)
+
+### Changed
+- Logged errors might look different: errors passed back up to main.go from clicommand [#2347](https://github.com/buildkite/agent/pull/2347) (@triarius)
+- HEAD commit found faster: `git log` is now used to get commit information instead of `git show` [#2323](https://github.com/buildkite/agent/pull/2323) (@leakingtapan)
+
+### Internal
+- Adapt Olfactor to allow sniffing for multiple smells [#2332](https://github.com/buildkite/agent/pull/2332) (@triarius)
+
+## [v3.53.0](https://github.com/buildkite/agent/tree/v3.53.0) (2023-08-31)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.52.1...v3.53.0)
+
+### Added
+- Artifact upload and download to/from Azure Blob Storage [#2318](https://github.com/buildkite/agent/pull/2318) (@DrJosh9000)
+
+### Fixed
+- Fix detection of missing commits on checkout [#2322](https://github.com/buildkite/agent/pull/2322) (@goodspark)
+- [Experimental] Handle the case when unmarshalling a step where there aren't any plugins [#2321](https://github.com/buildkite/agent/pull/2321) (@moskyb)
+- [Experimental] Fix signature mismatches when steps have plugins [#2339](https://github.com/buildkite/agent/pull/2339), [#2319](https://github.com/buildkite/agent/pull/2319) (@DrJosh9000)
+- [Experimental] Catch step env/job env edge case [#2340](https://github.com/buildkite/agent/pull/2340) (@DrJosh9000)
+
+### Changed
+- Retry fork/exec errors when running hook [#2325](https://github.com/buildkite/agent/pull/2325) (@triarius)
+
+### Internal
+- Fix ECR authentication failure [#2337](https://github.com/buildkite/agent/pull/2337), [#2335](https://github.com/buildkite/agent/pull/2335), [#2334](https://github.com/buildkite/agent/pull/2334) (@DrJosh9000)
+- Split checkout, artifact, and plugin phases out of executor.go [#2324](https://github.com/buildkite/agent/pull/2324) (@triarius)
+- Store experiments in contexts [#2316](https://github.com/buildkite/agent/pull/2316) (@DrJosh9000)
+
+## [v3.52.1](https://github.com/buildkite/agent/tree/v3.52.1) (2023-08-23)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.52.0...v3.52.1)
+
+### Fixed
+- Fix missing group interpolation [#2303](https://github.com/buildkite/agent/pull/2303) (@DrJosh9000)
+- Experimental fix for agent workers reading plugin directories while they are being written to by other agent workers [#2301](https://github.com/buildkite/agent/pull/2301) (@triarius)
+
+### Internal
+- Rework method of pushing releases to RPM repos [#2315](https://github.com/buildkite/agent/pull/2315) [#2314](https://github.com/buildkite/agent/pull/2314) [#2312](https://github.com/buildkite/agent/pull/2312) [#2310](https://github.com/buildkite/agent/pull/2310) [#2304](https://github.com/buildkite/agent/pull/2304) (@DrJosh9000)
+- Update help text with suggestions from docs code review [#2313](https://github.com/buildkite/agent/pull/2313) (@triarius)
+- Fix a flaky shell test [#2311](https://github.com/buildkite/agent/pull/2311) (@triarius)
+- Adjust cli help output to work better with documentation generation [#2317](https://github.com/buildkite/agent/pull/2317) (@triarius)
+
+## [v3.52.0](https://github.com/buildkite/agent/tree/v3.52.0) (2023-08-17)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.51.0...v3.52.0)
+
+### Added
+- [Experimental] Include pipeline and step env in step signatures [#2295](https://github.com/buildkite/agent/pull/2295) (@DrJosh9000)
+
+### Fixed
+- Fix step get is printing the address of the stdout stream at the start [#2299](https://github.com/buildkite/agent/pull/2299) (@triarius)
+
+### Changed
+- Add a newline after printing errors from the config parser [#2296](https://github.com/buildkite/agent/pull/2296) (@triarius)
+
+### Internal
+- Enable mount-buildkite-agent in release pipeline containers [#2298](https://github.com/buildkite/agent/pull/2298) (@DrJosh9000)
+- Update ecr, docker plugins, and agent image ver [#2297](https://github.com/buildkite/agent/pull/2297) (@DrJosh9000)
+- Pin bk cli used in agent pipeline to a commit [#2294](https://github.com/buildkite/agent/pull/2294) (@triarius)
+
+## [v3.51.0](https://github.com/buildkite/agent/tree/v3.51.0) (2023-08-15)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.50.4...v3.51.0)
+
+### Added
+- Add --strict-single-hooks [#2268](https://github.com/buildkite/agent/pull/2268) (@DrJosh9000)
+- Add missing 'an' in annotation help [#2285](https://github.com/buildkite/agent/pull/2285) (@mdb)
+- [Experimental] Verify step signatures [#2210](https://github.com/buildkite/agent/pull/2210) (@moskyb)
+- [Experimental] Pipeline Signing/Verification with JWS [#2252](https://github.com/buildkite/agent/pull/2252) (@moskyb)
+- [Experimental] Include plugins in command step signatures [#2292](https://github.com/buildkite/agent/pull/2292) (@DrJosh9000)
+
+### Changed
+- Make the agent send a SIGTERM (configurable) before a SIGKILL to subprocesses [#2250](https://github.com/buildkite/agent/pull/2250) (@triarius)
+- Limit job log length [#2192](https://github.com/buildkite/agent/pull/2192) (@DrJosh9000)
+- Refactor redactor into streaming replacer and use it to redact secrets [#2277](https://github.com/buildkite/agent/pull/2277) (@DrJosh9000)
+- Dependency upgrades [#2278](https://github.com/buildkite/agent/pull/2278) [#2274](https://github.com/buildkite/agent/pull/2274) [#2271](https://github.com/buildkite/agent/pull/2271) [#2272](https://github.com/buildkite/agent/pull/2272) [#2275](https://github.com/buildkite/agent/pull/2275) [#2266](https://github.com/buildkite/agent/pull/2266)
+
+### Fixed
+- Fix `fatal: bad object` not detected from git fetch [#2286](https://github.com/buildkite/agent/pull/2286) (@triarius)
+- Fix scalar plugin parsing [#2264](https://github.com/buildkite/agent/pull/2264) (@DrJosh9000)
+
+### Internal
+- Reorganise step types among files [#2267](https://github.com/buildkite/agent/pull/2267) (@DrJosh9000)
+- Upload test coverage [#2270](https://github.com/buildkite/agent/pull/2270) (@DrJosh9000)
+- Remove unwrapping in error `Is` methods [#2269](https://github.com/buildkite/agent/pull/2269) (@triarius)
+- Use capacity hint in `concat` [#2288](https://github.com/buildkite/agent/pull/2288) (@DrJosh9000)
+- Add ordered.Unmarshal, and use it in pipeline parsing [#2279](https://github.com/buildkite/agent/pull/2279) (@DrJosh9000)
+- Create a setup method for config and logger to reduce boilerplate [#2281](https://github.com/buildkite/agent/pull/2281) (@triarius)
+- Add retry for publishing RPMs [#2280](https://github.com/buildkite/agent/pull/2280) (@triarius)
+- Fix data race in testAgentEndpoint [#2265](https://github.com/buildkite/agent/pull/2265) (@DrJosh9000)
+- Fix missing "fmt" import [#2287](https://github.com/buildkite/agent/pull/2287) (@DrJosh9000)
+
+## [v3.50.4](https://github.com/buildkite/agent/tree/v3.50.4) (2023-07-31)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.50.3...v3.50.4)
+
+### Fixed
+- Even More Pipeline Parsing Fixes [#2253](https://github.com/buildkite/agent/pull/2253) (@moskyb)
+- Fix missing `return` statements when unmarshalling fails [#2245](https://github.com/buildkite/agent/pull/2245) (@moskyb), [#2257](https://github.com/buildkite/agent/pull/2257) (@DrJosh9000)
+- Add future-proofing `UnknownStep` type [#2254](https://github.com/buildkite/agent/pull/2254) (@DrJosh9000)
+- Nil handling fixes, particularly parsing `env: null` [#2260](https://github.com/buildkite/agent/pull/2260) (@DrJosh9000)
+
+## Changed
+- Remove docker-compose v1 from ubuntu 22.04 and replace with compatibility script [#2248](https://github.com/buildkite/agent/pull/2248) (@triarius)
+- Authentication failure errors when using S3 now mention `BUILDKITE_S3_PROFILE` and `AWS_PROFILE` [#2247](https://github.com/buildkite/agent/pull/2247) (@DrJosh9000)
+
+## Internal
+- Remove a double check for the existence of a local hook and log when it is missing in debug [#2249](https://github.com/buildkite/agent/pull/2249) (@triarius)
+- Refactor some code in process.go [#2251](https://github.com/buildkite/agent/pull/2251) (@triarius)
+- Store `GOCACHE` outside container [#2256](https://github.com/buildkite/agent/pull/2256) (@DrJosh9000)
+- Get mime types from github, rather than Apache's SVN Server [#2255](https://github.com/buildkite/agent/pull/2255) (@moskyb)
+- Check that go.mod is tidy in CI [#2246](https://github.com/buildkite/agent/pull/2246) (@moskyb) and fix flakiness of this check [#2261](https://github.com/buildkite/agent/pull/2261) (@triarius)
+
+## [v3.50.3](https://github.com/buildkite/agent/tree/v3.50.3) (2023-07-24)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.50.2...v3.50.3)
+
+### Changed
+- Two-phase pipeline parsing [#2238](https://github.com/buildkite/agent/pull/2238) (@DrJosh9000)
+- Remove installing qemu-binfmt from agent pipeline [#2236](https://github.com/buildkite/agent/pull/2236) (@triarius)
+
+## [v3.50.2](https://github.com/buildkite/agent/tree/v3.50.2) (2023-07-21)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.50.1...v3.50.2)
+
+This release contains a known issue:
+|Severity|Description|Fixed in|
+|---|---|---|
+| Medium | When uploading pipelines, if any object in the pipeline YAML contained multiple merge keys, the pipeline would fail to parse. See below for a workaround | **✅ Fixed in [v3.50.3](#v3.50.3)** |
+
+### Fixed
+- Fix an issue introduced in [#2207](https://github.com/buildkite/agent/pull/2207) where jobs wouldn't check if they'd been cancelled [#2231](https://github.com/buildkite/agent/pull/2231) (@triarius)
+- Fix avoid-recursive-trap experiment not recognised [#2235](https://github.com/buildkite/agent/pull/2235) (@triarius)
+- Further refactor to `agent.JobRunner` [#2222](https://github.com/buildkite/agent/pull/2222) [#2230](https://github.com/buildkite/agent/pull/2230) (@moskyb)
+
+
+## [v3.50.1](https://github.com/buildkite/agent/tree/v3.50.1) (2023-07-20)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.49.0...v3.50.1)
+
+This release contains multiple issues:
+
+|Severity|Description|Fixed in|
+|---|---|---|
+| ⚠️ Very High | Jobs running on this version of the agent are not cancellable from the UI/API | **✅ Fixed in [v3.50.2](#v3.50.2)** |
+| Medium | When uploading pipelines, if any object in the pipeline YAML contained multiple merge keys, the pipeline would fail to parse. See below for a workaround | **✅ Fixed in [v3.50.3](#v3.50.3)** |
+
+### Fixed
+- Empty or zero-length `steps` is no longer a parser error, and is normalised to \[\] instead [#2225](https://github.com/buildkite/agent/pull/2225), [#2229](https://github.com/buildkite/agent/pull/2229) (@DrJosh9000)
+- Group steps now correctly include the `group` key [#2226](https://github.com/buildkite/agent/pull/2226) (@DrJosh9000)
+- Increases to test coverage for the new parser [#2227](https://github.com/buildkite/agent/pull/2227) (@DrJosh9000)
+
+## [v3.50.0](https://github.com/buildkite/agent/tree/v3.50.0) (2023-07-18)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.49.0...v3.50.0)
+
+This release contains multiple issues:
+
+|Severity|Description|Fixed in|
+|---|---|---|
+| Medium | When uploading pipelines, some group steps are not correctly parsed, and were ignored. | **✅ Fixed in [v3.50.1](#v3.50.1)** |
+| Low | Uploading pipelines with empty or zero-length `steps` failed, where they should've been a no-op. | **✅ Fixed in [v3.50.1](#v3.50.1)** |
+| ⚠️ Very High | Jobs running on this version of the agent are not cancellable from the UI/API | **✅ Fixed in [v3.50.2](#v3.50.2)** |
+| Medium | When uploading pipelines, if any object in the pipeline YAML contained multiple merge keys, the pipeline would fail to parse. See below for a workaround | **✅ Fixed in [v3.50.3](#v3.50.3)** |
+
+
+<details>
+<summary>Workaround for yaml merge key issue</summary>
+For example, this pipeline would fail to parse:
+
+```yaml
+default_plugins: &default_plugins
+  plugins:
+    - docker#4.0.0:
+        image: alpine:3.14
+
+default_retry: &default_retry
+  retry:
+    automatic:
+      - exit_status: 42
+
+steps:
+  - <<: *default_plugins
+    <<: *default_retry
+    command: "echo 'hello, world!'"
+```
+
+As a workaround for this, you can use yaml array merge syntax instead:
+
+```yaml
+default_plugins: &default_plugins
+  plugins:
+    - docker#4.0.0:
+        image: alpine:3.14
+
+default_retry: &default_retry
+  retry:
+    automatic:
+      - exit_status: 42
+
+steps:
+  - <<: [*default_plugins, *default_retry]
+    command: "echo 'hello, world!'"
+```
+</details>
+
+### Added
+- We're working on making pipeline signing a feature of the agent! But it's definitely not ready for primetime yet... [#2216](https://github.com/buildkite/agent/pull/2216), [#2200](https://github.com/buildkite/agent/pull/2200), [#2191](https://github.com/buildkite/agent/pull/2191), [#2186](https://github.com/buildkite/agent/pull/2186), [#2190](https://github.com/buildkite/agent/pull/2190), [#2181](https://github.com/buildkite/agent/pull/2181), [#2184](https://github.com/buildkite/agent/pull/2184), [#2173](https://github.com/buildkite/agent/pull/2173), [#2180](https://github.com/buildkite/agent/pull/2180) (@moskyb, @DrJosh9000)
+- Add option to configure location of Job Log tmp file [#2174](https://github.com/buildkite/agent/pull/2174) (@yhartanto)
+- Add `avoid-recursive-trap` experiment to avoid a recursive trap [#2209](https://github.com/buildkite/agent/pull/2209) (@triarius)
+- Load the AWS Shared Credentials for s3 operations [#1730](https://github.com/buildkite/agent/pull/1730) (@lox)
+
+### Fixed
+- Add workaround for `fatal: bad object` errors when fetching from a git mirror [#2218](https://github.com/buildkite/agent/pull/2218) (@DrJosh9000)
+- Fix missing fetch when updating git mirrors of submodules (https://github.com/buildkite/agent/pull/2203) (@DrJosh9000)
+- Use a unique name for each agent started using the systemd template unit file [#2205](https://github.com/buildkite/agent/pull/2205) (@DavidGregory084)
+- Polyglot hooks wasn't documented in EXPERIMENTS.md, so we fixed that [#2169](https://github.com/buildkite/agent/pull/2169) (@moskyb)
+- De-experimentify wording on the status page [#2172](https://github.com/buildkite/agent/pull/2172) (@DrJosh9000)
+- The secrets redactor now properly redacts multi-line secrets and overlapping secrets [#2154](https://github.com/buildkite/agent/pull/2154) (@DrJosh9000)
+
+### Changed
+- Print agent version and build in debug logs [#2211](https://github.com/buildkite/agent/pull/2211) (@triarius)
+- Include the version each experiment was promoted [#2199](https://github.com/buildkite/agent/pull/2199) (@DrJosh9000)
+
+### Various code cleanups and meta-fixes
+- Fix docker builds for Ubuntu 22.04 [#2217](https://github.com/buildkite/agent/pull/2217) (@moskyb)
+- JobRunner cleanup [#2207](https://github.com/buildkite/agent/pull/2207) (@moskyb)
+- Simplify command phase [#2206](https://github.com/buildkite/agent/pull/2206) (@triarius)
+- Rename `Bootstrap` struct (and friends) to `Executor` [#2188](https://github.com/buildkite/agent/pull/2188) (@moskyb)
+- Upgrade docker compose plugin to v4.14, use docker compose v2 [#2189](https://github.com/buildkite/agent/pull/2189) (@moskyb)
+- Rename package bootstrap -> job [#2187](https://github.com/buildkite/agent/pull/2187) (@moskyb)
+- Clarify code around creating a process group [#2185](https://github.com/buildkite/agent/pull/2185) (@triarius)
+- Fix docker builds for Ubuntu 22.04 [#2217](https://github.com/buildkite/agent/pull/2217) (@moskyb)
+
+And the usual amount of @dependabot[bot] updates!
+
+## [v3.49.0](https://github.com/buildkite/agent/tree/v3.49.0) (2023-06-21)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.48.0...v3.49.0)
+
+### Fixed
+- CreateArtifacts & UpdateArtifacts: remove sometimes-too-short timeout after 4 attempts [#2159](https://github.com/buildkite/agent/pull/2159) (@pda)
+- Fix submodule mirror repository remote using main repo URL [#1998](https://github.com/buildkite/agent/pull/1998) (@francoiscampbell)
+- Update job log file to include line transforms [#2157](https://github.com/buildkite/agent/pull/2157) (@chasestarr)
+- Clearer HTTP error logging from API client [#2156](https://github.com/buildkite/agent/pull/2156) (@moskyb)
+
+### Changed
+- `Buildkite-Timeout-Milliseconds` API request header [#2160](https://github.com/buildkite/agent/pull/2160) (@pda)
+- Extract pipeline parser to package internal/pipeline [#2158](https://github.com/buildkite/agent/pull/2158) (@DrJosh9000)
+- Minor dependency updates [#2165](https://github.com/buildkite/agent/pull/2165) [#2164](https://github.com/buildkite/agent/pull/2164) [#2162](https://github.com/buildkite/agent/pull/2162) [#2161](https://github.com/buildkite/agent/pull/2161) [#2153](https://github.com/buildkite/agent/pull/2153) [#2152](https://github.com/buildkite/agent/pull/2152) [#2151](https://github.com/buildkite/agent/pull/2151)
+- Lock library [#2145](https://github.com/buildkite/agent/pull/2145) (@DrJosh9000)
+
+
+## [v3.48.0](https://github.com/buildkite/agent/tree/v3.48.0) (2023-06-06)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.47.0...v3.48.0)
+
+The de-experimentification release!
+
+- The `ansi-timestamps` experiment is now enabled by default. To remove the
+  timestamps from your logs, you can pass the `--no-ansi-timestamps` flag.
+- The `flock-file-locks` experiment is now enabled by default. Because the old
+  and new file lock systems don't interact, we *strongly* recommend not running
+  multiple agents of different versions on the same host.
+- The `inbuilt-status-page` experiment is now enabled by default. For those
+  running the agent with `--health-check-addr`, go to `/status` to see a
+  human-friendly status page.
+
+And whatever happened to `git-mirrors`? It graduated from experiment-hood in
+v3.47.0!
+
+### Changed
+- De-experimentify ansi-timestamps [#2133](https://github.com/buildkite/agent/pull/2133) (@DrJosh9000)
+- Preserve plugin config env var names with consecutive underscores [#2116](https://github.com/buildkite/agent/pull/2116) (@triarius)
+- De-experimentify flock-file-locks [#2131](https://github.com/buildkite/agent/pull/2131) (@DrJosh9000)
+- Report more AWS metadata [#2118](https://github.com/buildkite/agent/pull/2118) (@david-poirier)
+- De-experimentify inbuilt-status-page [#2126](https://github.com/buildkite/agent/pull/2126) (@DrJosh9000)
+
+### Fixed
+- Fix origin for mirrored submodules [#2144](https://github.com/buildkite/agent/pull/2144) (@DrJosh9000)
+- Wipe checkout directory on `git checkout` and `git fetch` failure and retry [#2137](https://github.com/buildkite/agent/pull/2137) (@triarius)
+
+
+## [v3.47.0](https://github.com/buildkite/agent/tree/v3.47.0) (2023-05-25)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.46.1...v3.47.0)
+
+Two new and very noteworthy experiments!
+
+1. Have you ever wanted to write hooks in a compiled language? Or in Python or
+   Ruby? Well now you can! With `--experiment=polyglot-hooks` the agent can run
+   all sorts of hooks and plugins directly. Combined with
+   `--experiment=job-api`, your hooks-of-a-different-language can alter
+    environment variables through the local Job API!
+2. Concurrency groups are great, but have you ever wanted to manage multiple
+   agents running on the same host concurrently accessing a shared resource?
+   Well now you can! With `--experiment=agent-api`, the agent now has an inbuilt
+   locking service, accessible through new `lock` subcommands and also via a
+   Unix socket (like the `job-api`).
+
+### Added
+- Experiment: Polyglot hooks [#2040](https://github.com/buildkite/agent/pull/2040) (@moskyb)
+- Experiment: Local Agent API, with locking service [#2042](https://github.com/buildkite/agent/pull/2042) (@DrJosh9000)
+- New flag `--upload-skip-symlinks` (on `artifact upload`) allows skipping symlinks when uploading files. `--follow-symlinks` has been deprecated and renamed to `--glob-resolve-follow-symlinks` [#2072](https://github.com/buildkite/agent/pull/2072) (@triarius)
+
+### Fixed
+- The `normalised-upload-paths` experiment was unintentionally left out of the available experiments list [#2076](https://github.com/buildkite/agent/pull/2076) (@MatthewDolan)
+
+### Changed
+- The `git-mirrors` experiment is promoted to full functionality [#2032](https://github.com/buildkite/agent/pull/2032) (@moskyb)
+- Errors in the git checkout process are now easier to diagnose [#2074](https://github.com/buildkite/agent/pull/2074) (@moskyb)
+- Alpine images updated to Alpine 3.18 [#2098](https://github.com/buildkite/agent/pull/2098) (@moskyb)
+
+## [3.46.1](https://github.com/buildkite/agent/tree/3.46.1) (2023-05-08)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.46.0...v3.46.1)
+
+### Fixed
+
+- Avoid long `--no-patch` arg added to `git show` in v1.8.4, to e.g. support CentOS 7 [#2075](https://github.com/buildkite/agent/pull/2075) (@pda)
+
+## [3.46.0](https://github.com/buildkite/agent/tree/3.46.0) (2023-05-04)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.45.0...v3.46.0)
+
+### Added
+- Add `*_PRIVATE_KEY` to auto-redacted vars [#2043](https://github.com/buildkite/agent/pull/2043) (@moskyb)
+- Warn on unknown experiments [#2030](https://github.com/buildkite/agent/pull/2030) (@moskyb)
+- More aws tags [#1994](https://github.com/buildkite/agent/pull/1994) (@sj26)
+- Add option for outputting structured logs for collection and searching [#2009](https://github.com/buildkite/agent/pull/2009) (@goodspark)
+- Include abbrev-commit in `buildkite:git:commit` meta-data [#2054](https://github.com/buildkite/agent/pull/2054) (@pda)
+- Add agent support for getting meta-data by build [#2025](https://github.com/buildkite/agent/pull/2025) (@123sarahj123)
+
+### Fixed
+- Prevent job cancellation during checkout from retrying [#2047](https://github.com/buildkite/agent/pull/2047) [#2068](https://github.com/buildkite/agent/pull/2068) (@matthewborden + @triarius + @moskyb)
+- ArtifactUploader API calls: faster timeout & retry [#2028](https://github.com/buildkite/agent/pull/2028) [#2069](https://github.com/buildkite/agent/pull/2069) (@pda)
+- Give a nicer error when empty strings are used as metadata values [#2067](https://github.com/buildkite/agent/pull/2067) (@moskyb)
+- Fix BUILDKITE_GIT_CLONE_MIRROR_FLAGS environment variable not working correctly [#2056](https://github.com/buildkite/agent/pull/2056) (@ppatwf)
+
+As always, @dependabot and friends have been deep in the update mines ensuring that all of our dependencies are up to date. Thanks, dependabot!
+
+## [3.45.0](https://github.com/buildkite/agent/tree/3.45.0) (2023-03-16)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.44.0...3.45.0)
+
+It's a busy one! The major new feature in this release is the `job-api` experiment, which enables an HTTP API within the agent that allows jobs to inspect and mutate their environment, without using the normal bash-isms that we normally require. This is a big step towards supporting hooks and plugins in other languages, and we're really excited to see what you all do with it!
+
+When this experiment is enabled, the agent will start an HTTP server on a unix domain socket, the address of which will be made available through the `BUILDKITE_AGENT_JOB_API_SOCKET` environment variable, with a token available through the `BUILDKITE_AGENT_JOB_API_TOKEN` environment variable. This socket can be used with the `buildkite-agent env {get,set,unset}` commands on the commandline, or directly through cURL or other HTTP client. Included in this release of the agent is a [golang client](https://github.com/buildkite/agent/blob/main/jobapi/client.go), which can be imported directly into your Go projects.
+
+Also included is another experimental feature, `descending-spawn-priority`, which makes agents using the `--spawn-with-priority` flag spawn agents with a descending priority, rather than the default ascending priority. This is useful when running agents on heterogeneous hardware (ie, having two agents on one machine and four on another), as it means that jobs will be spread more evenly across the agents. For more information, see [the original issue](https://github.com/buildkite/agent/issues/1929), and [@DrJosh9000's PR](https://github.com/buildkite/agent/pull/2004). Huge thanks to @nick-f for bringing this to our attention!
+
+Full changelog follows:
+
+### Added
+- Add current-job api [#1943](https://github.com/buildkite/agent/pull/1943) [#1944](https://github.com/buildkite/agent/pull/1944) [#2013](https://github.com/buildkite/agent/pull/2013) [#2017](https://github.com/buildkite/agent/pull/2017) (@moskyb + @DrJosh9000)
+- Agent docker images now include [`buildx`](https://github.com/docker/buildx) [#2005](https://github.com/buildkite/agent/pull/2005) (@triarius)
+- Add `descending-spawn-priority` experiment. [#2004](https://github.com/buildkite/agent/pull/2004) (@DrJosh9000)
+- We now publish OSS acknowledgements with the agent. You can read them at [ACKNOWLEDGEMENTS.md](https://github.com/buildkite/agent/blob/main/ACKNOWLEDGEMENTS.md), or by running `buildkite-agent acknowledgements` [#1945](https://github.com/buildkite/agent/pull/1945) [#2000](https://github.com/buildkite/agent/pull/2000) (@DrJosh9000)
+- BUILDKITE_S3_ENDPOINT env var, allowing jobs to upload artifacts to non-S3 endpoints eg minio [#1965](https://github.com/buildkite/agent/pull/1965) (@pda)
+
+### Fixed
+- Avoid holding full job logs, reducing agent memory consumption [#2014](https://github.com/buildkite/agent/pull/2014) (@DrJosh9000)
+- ansi-timestamps: Compute prefixes at start of line [#2016](https://github.com/buildkite/agent/pull/2016) (@DrJosh9000)
+- Fix DD trace setup warning [#2007](https://github.com/buildkite/agent/pull/2007) (@goodspark)
+
+### Changed
+- Kubernetes improvements:
+  - Set a non-zero exit status when a job is cancelled in Kubernetes [#2010](https://github.com/buildkite/agent/pull/2010) (@triarius)
+  - Add tags from env variables provided by the controller in agent-stack-k8s if kuberenetes-exec experiment is enabled [#2003](https://github.com/buildkite/agent/pull/2003) (@triarius)
+- Globs parsed by the agent now support negation and bracketing [#2001](https://github.com/buildkite/agent/pull/2001) (@moskyb)
+- Allow the use of non-bash shells to execute agent hooks [#1995](https://github.com/buildkite/agent/pull/1995) (@DrJosh9000)
+- Don't add custom remotes for submodules when using git-mirrors [#1991](https://github.com/buildkite/agent/pull/1991) (@jonahbull)
+- Improve systemd behaviour when updating the agent [#1993](https://github.com/buildkite/agent/pull/1993) (@triarius)
+- ... And as always, the usual crop of small fixes, dependency updates, and cleanups (@moskyb, @dependabot, @DrJosh9000, @triarius)
+
+## [v3.44.0](https://github.com/buildkite/agent/tree/v3.44.0) (2023-02-27)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.43.1...v3.44.0)
+
+### Fixed
+- tini is once again available at the old path (`/usr/sbin/tini`) in the Ubuntu 20.04 image [#1934](https://github.com/buildkite/agent/pull/1934) (@triarius)
+- With `ansi-timestamps` experiment enabled, each line's timestamp is now computed at the end of the line [#1940](https://github.com/buildkite/agent/pull/1940) (@DrJosh9000)
+- A panic when the AWS region for an S3 bucket is undiscoverable [#1964](https://github.com/buildkite/agent/pull/1964) (@DrJosh9000)
+
+### Added
+- An experiment for running jobs under Kubernetes [#1884](https://github.com/buildkite/agent/pull/1884) (@benmoss), [#1968](https://github.com/buildkite/agent/pull/1968) (@triarius)
+- Ubuntu 22.04 Docker Image [#1966](https://github.com/buildkite/agent/pull/1966) (@triarius)
+- Claims can now be added to OIDC token requests [#1951](https://github.com/buildkite/agent/pull/1951) (@triarius)
+- A new flag / environment variable (`--git-checkout-flags` / `BUILDKITE_GIT_CHECKOUT_FLAGS`) for passing extra flags to `git checkout` [#1891](https://github.com/buildkite/agent/pull/1891) (@jmelahman)
+- Reference clones can be used for submodules [#1959](https://github.com/buildkite/agent/pull/1959) (@jonahbull)
+
+### Changed
+- Upstart is no longer supported [#1946](https://github.com/buildkite/agent/pull/1946) (@sj26)
+- `pipeline upload` internally uses a new asynchronous upload flow, reducing the number of connections held open [#1927](https://github.com/buildkite/agent/pull/1927) (@triarius)
+- Faster failure when trying to `pipeline upload` a malformed pipeline [#1963](https://github.com/buildkite/agent/pull/1963) (@triarius)
+- Better errors when config loading fails [#1937](https://github.com/buildkite/agent/pull/1937) (@moskyb)
+- Pipelines are now parsed with gopkg.in/yaml.v3. This change should be invisible, but involved a non-trivial amount of new code. [#1930](https://github.com/buildkite/agent/pull/1930) (@DrJosh9000)
+- Many dependency updates, notably Go v1.20.1 [#1955](https://github.com/buildkite/agent/pull/1955).
+- Several minor fixes, improvements and clean-ups (@sj26, @triarius, @jonahbull, @DrJosh9000, @tcptps, @dependabot[bot])
+
+## [3.43.1](https://github.com/buildkite/agent/tree/3.43.1) (2023-01-20)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.43.0...3.43.1)
+
+### Fixed
+- An issue introduced in v3.43.0 where agents running in acquire mode would exit after ~4.5 minutes, failing the job they were running [#1923](https://github.com/buildkite/agent/pull/1923) (@leathekd)
+
+## [3.43.0](https://github.com/buildkite/agent/tree/3.43.0) (2023-01-18)
+[Full Changelog](https://github.com/buildkite/agent/compare/v3.42.0...3.43.0)
+
+### Fixed
+- A nil pointer dereference introduced in 3.42.0 due to missing error handling after calling `user.Current` [#1910](https://github.com/buildkite/agent/pull/1910) (@DrJosh9000)
+
+### Added
+- A flag to allow empty results with doing an artifact search [#1887](https://github.com/buildkite/agent/pull/1887) (@MatthewDolan)
+- Docker Images for linux/arm64 [#1901](https://github.com/buildkite/agent/pull/1901) (@triarius)
+- Agent tags are added from ECS container metadata [#1870](https://github.com/buildkite/agent/pull/1870) (@francoiscampbell)
+
+### Changed
+- The `env` subcommand is now `env dump` [#1920](https://github.com/buildkite/agent/pull/1920) (@pda)
+- AcquireJob now retries while the job is locked [#1894](https://github.com/buildkite/agent/pull/1894) (@triarius)
+- Various miscellaneous updates and improvements (@moskyb, @triarius, @mitchbne, @dependabot[bot])
+
 ## [v3.42.0](https://github.com/buildkite/agent/tree/v3.42.0) (2023-01-05)
 [Full Changelog](https://github.com/buildkite/agent/compare/v3.41.0...v3.42.0)
 
@@ -35,7 +1304,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 - Update windows install script to detect arm64 systems [#1768](https://github.com/buildkite/agent/pull/1768) (@yob)
 - Install docker compose v2 plugin in agent alpine and ubuntu docker images [#1841](https://github.com/buildkite/agent/pull/1841) (@ajoneil) (@triarius)
-- 🧹 A variety of dependency updates, documentation, and cleanups! (@dependabot[bot]) (@DrJosh9000)
+- 🧹 A variety of dependency updates, documentation, and cleanups!  (@DrJosh9000)
 
 
 ## [v3.40.0](https://github.com/buildkite/agent/tree/v3.40.0) (2022-11-08)
@@ -137,9 +1406,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Refactor retry machinery to allow the use of exponential backoff [#1588](https://github.com/buildkite/agent/pull/1588) (@moskyb)
 - Create all directories with 0775 permissions [#1616](https://github.com/buildkite/agent/pull/1616) (@moskyb)
 - Dependency Updates:
-  - github.com/urfave/cli: 1.22.4 -> 1.22.9 [#1619](https://github.com/buildkite/agent/pull/1619) + [#1638](https://github.com/buildkite/agent/pull/1638) (@dependabot[bot])
-  - Golang: 1.17.6 -> 1.18.1 (yay, generics!) [#1603](https://github.com/buildkite/agent/pull/1603) + [#1627](https://github.com/buildkite/agent/pull/1627) (@dependabot[bot])
-  - Alpine Build Images: 3.15.0 -> 3.15.4 [#1626](https://github.com/buildkite/agent/pull/1626) (@dependabot[bot])
+  - github.com/urfave/cli: 1.22.4 -> 1.22.9 [#1619](https://github.com/buildkite/agent/pull/1619) + [#1638](https://github.com/buildkite/agent/pull/1638)
+  - Golang: 1.17.6 -> 1.18.1 (yay, generics!) [#1603](https://github.com/buildkite/agent/pull/1603) + [#1627](https://github.com/buildkite/agent/pull/1627)
+  - Alpine Build Images: 3.15.0 -> 3.15.4 [#1626](https://github.com/buildkite/agent/pull/1626)
   - Alpine Release Images: 3.12 -> 3.15.4 [#1628](https://github.com/buildkite/agent/pull/1628) (@moskyb)
 
 ## [v3.35.2](https://github.com/buildkite/agent/tree/v3.35.2) (2022-04-13)

@@ -3,8 +3,8 @@
 package main
 
 // see https://blog.golang.org/generate
-//go:generate go run mime/generate.go
-//go:generate go fmt mime/mime.go
+//go:generate go run internal/mime/generate.go
+//go:generate go fmt internal/mime/mime.go
 
 import (
 	"fmt"
@@ -15,7 +15,7 @@ import (
 	"github.com/urfave/cli"
 )
 
-var AppHelpTemplate = `Usage:
+const appHelpTemplate = `Usage:
 
   {{.Name}} <command> [options...]
 
@@ -24,116 +24,60 @@ Available commands are:
   {{range .Commands}}{{.Name}}{{with .ShortName}}, {{.}}{{end}}{{ "\t" }}{{.Usage}}
   {{end}}
 Use "{{.Name}} <command> --help" for more information about a command.
-
 `
 
-var SubcommandHelpTemplate = `Usage:
+const subcommandHelpTemplate = `Usage:
 
   {{.Name}} {{if .VisibleFlags}}<command>{{end}} [options...]
 
 Available commands are:
 
-   {{range .Commands}}{{.Name}}{{with .ShortName}}, {{.}}{{end}}{{ "\t" }}{{.Usage}}
-   {{end}}{{if .VisibleFlags}}
+  {{range .Commands}}{{.Name}}{{with .ShortName}}, {{.}}{{end}}{{ "\t" }}{{.Usage}}
+  {{end}}{{if .VisibleFlags}}
+
 Options:
 
-   {{range .VisibleFlags}}{{.}}
-   {{end}}{{end}}
+{{range .VisibleFlags}}  {{.}}
+{{end}}{{ end -}}
 `
 
-var CommandHelpTemplate = `{{.Description}}
+const commandHelpTemplate = `{{.Description}}
 
 Options:
 
-   {{range .VisibleFlags}}{{.}}
-   {{end}}
+{{range .VisibleFlags}}  {{.}}
+{{ end -}}
 `
 
 func printVersion(c *cli.Context) {
-	fmt.Printf("%v version %v, build %v\n", c.App.Name, c.App.Version, version.BuildVersion())
+	fmt.Fprintf(c.App.Writer, "%s version %s\n", c.App.Name, version.FullVersion())
 }
 
 func main() {
-	cli.AppHelpTemplate = AppHelpTemplate
-	cli.CommandHelpTemplate = CommandHelpTemplate
-	cli.SubcommandHelpTemplate = SubcommandHelpTemplate
+	cli.AppHelpTemplate = appHelpTemplate
+	cli.CommandHelpTemplate = commandHelpTemplate
+	cli.SubcommandHelpTemplate = subcommandHelpTemplate
 	cli.VersionPrinter = printVersion
 
 	app := cli.NewApp()
 	app.Name = "buildkite-agent"
 	app.Version = version.Version()
-	app.Commands = []cli.Command{
-		clicommand.AgentStartCommand,
-		clicommand.AnnotateCommand,
-		{
-			Name:  "annotation",
-			Usage: "Make changes an annotation on the currently running build",
-			Subcommands: []cli.Command{
-				clicommand.AnnotationRemoveCommand,
-			},
-		},
-		{
-			Name:  "artifact",
-			Usage: "Upload/download artifacts from Buildkite jobs",
-			Subcommands: []cli.Command{
-				clicommand.ArtifactUploadCommand,
-				clicommand.ArtifactDownloadCommand,
-				clicommand.ArtifactSearchCommand,
-				clicommand.ArtifactShasumCommand,
-			},
-		},
-		{
-			Name:  "meta-data",
-			Usage: "Get/set data from Buildkite jobs",
-			Subcommands: []cli.Command{
-				clicommand.MetaDataSetCommand,
-				clicommand.MetaDataGetCommand,
-				clicommand.MetaDataExistsCommand,
-				clicommand.MetaDataKeysCommand,
-			},
-		},
-		{
-			Name:  "oidc",
-			Usage: "Interact with Buildkite OpenID Connect (OIDC)",
-			Subcommands: []cli.Command{
-				clicommand.OIDCRequestTokenCommand,
-			},
-		},
-		{
-			Name:  "pipeline",
-			Usage: "Make changes to the pipeline of the currently running build",
-			Subcommands: []cli.Command{
-				clicommand.PipelineUploadCommand,
-			},
-		},
-		{
-			Name:  "step",
-			Usage: "Get or update an attribute of a build step",
-			Subcommands: []cli.Command{
-				clicommand.StepGetCommand,
-				clicommand.StepUpdateCommand,
-			},
-		},
-		clicommand.EnvCommand,
-		clicommand.BootstrapCommand,
-	}
-
+	app.Commands = clicommand.BuildkiteAgentCommands
 	app.ErrWriter = os.Stderr
 
 	// When no sub command is used
 	app.Action = func(c *cli.Context) {
-		cli.ShowAppHelp(c)
+		_ = cli.ShowAppHelp(c)
 		os.Exit(1)
 	}
 
 	// When a sub command can't be found
 	app.CommandNotFound = func(c *cli.Context, command string) {
-		cli.ShowAppHelp(c)
+		_ = cli.ShowAppHelp(c)
 		os.Exit(1)
 	}
 
 	if err := app.Run(os.Args); err != nil {
-		fmt.Printf("%v\n", err)
-		os.Exit(1)
+		os.Exit(clicommand.PrintMessageAndReturnExitCode(err))
 	}
 }

@@ -7,15 +7,16 @@ import (
 
 // Annotation represents a Buildkite Agent API Annotation
 type Annotation struct {
-	Body    string `json:"body,omitempty"`
-	Context string `json:"context,omitempty"`
-	Style   string `json:"style,omitempty"`
-	Append  bool   `json:"append,omitempty"`
+	Body     string `json:"body,omitempty"`
+	Context  string `json:"context,omitempty"`
+	Style    string `json:"style,omitempty"`
+	Append   bool   `json:"append,omitempty"`
+	Priority int    `json:"priority,omitempty"`
 }
 
 // Annotate a build in the Buildkite UI
 func (c *Client) Annotate(ctx context.Context, jobId string, annotation *Annotation) (*Response, error) {
-	u := fmt.Sprintf("jobs/%s/annotations", jobId)
+	u := fmt.Sprintf("jobs/%s/annotations", railsPathEscape(jobId))
 
 	req, err := c.newRequest(ctx, "POST", u, annotation)
 	if err != nil {
@@ -27,7 +28,7 @@ func (c *Client) Annotate(ctx context.Context, jobId string, annotation *Annotat
 
 // Remove an annotation from a build
 func (c *Client) AnnotationRemove(ctx context.Context, jobId string, context string) (*Response, error) {
-	u := fmt.Sprintf("jobs/%s/annotations/%s", jobId, context)
+	u := fmt.Sprintf("jobs/%s/annotations/%s", railsPathEscape(jobId), railsPathEscape(context))
 
 	req, err := c.newRequest(ctx, "DELETE", u, nil)
 	if err != nil {

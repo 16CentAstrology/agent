@@ -14,7 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/crypto/ssh/terminal"
+	"github.com/buildkite/agent/v3/version"
+	"golang.org/x/term"
 )
 
 const (
@@ -80,7 +81,10 @@ func (l *ConsoleLogger) SetLevel(level Level) {
 
 func (l *ConsoleLogger) Debug(format string, v ...any) {
 	if l.level == DEBUG {
-		l.printer.Print(DEBUG, fmt.Sprintf(format, v...), l.fields)
+		debugFields := make(Fields, len(l.fields))
+		copy(debugFields, l.fields)
+		debugFields.Add(StringField("agent_version", version.FullVersion()))
+		l.printer.Print(DEBUG, fmt.Sprintf(format, v...), debugFields)
 	}
 }
 
@@ -227,11 +231,7 @@ func ColorsSupported() bool {
 	}
 
 	// Colors can only be shown if STDOUT is a terminal
-	if terminal.IsTerminal(int(os.Stdout.Fd())) {
-		return true
-	}
-
-	return false
+	return term.IsTerminal(int(os.Stdout.Fd()))
 }
 
 type JSONPrinter struct {

@@ -9,38 +9,39 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/buildkite/agent/v3/bootstrap"
-	"github.com/buildkite/agent/v3/cliconfig"
-	"github.com/buildkite/agent/v3/experiments"
+	"github.com/buildkite/agent/v3/internal/job"
 	"github.com/buildkite/agent/v3/process"
+	"github.com/buildkite/agent/v3/tracetools"
 	"github.com/urfave/cli"
 )
 
-var BootstrapHelpDescription = `Usage:
+const bootstrapHelpDescription = `Usage:
 
-   buildkite-agent bootstrap [options...]
+     buildkite-agent bootstrap [options...]
 
 Description:
 
-   The bootstrap command executes a Buildkite job locally.
+The bootstrap command executes a Buildkite job locally.
 
-   Generally the bootstrap command is run as a sub-process of the buildkite-agent to execute
-   a given job sent from buildkite.com, but you can also invoke the bootstrap manually.
+Generally the bootstrap command is run as a sub-process of the buildkite-agent to execute
+a given job sent from buildkite.com, but you can also invoke the bootstrap manually.
 
-   Execution is broken down into phases. By default, the bootstrap runs a plugin phase which
-   sets up any plugins specified, then a checkout phase which pulls down your code and then a
-   command phase that executes the specified command in the created environment.
+Execution is broken down into phases. By default, the bootstrap runs a plugin phase which
+sets up any plugins specified, then a checkout phase which pulls down your code and then a
+command phase that executes the specified command in the created environment.
 
-   You can run only specific phases with the --phases flag.
+You can run only specific phases with the --phases flag.
 
-   The bootstrap is also responsible for executing hooks around the phases.
-   See https://buildkite.com/docs/agent/v3/hooks for more details.
+The bootstrap is also responsible for executing hooks around the phases.
+See https://buildkite.com/docs/agent/v3/hooks for more details.
 
 Example:
 
-   $ eval $(curl -s -H "Authorization: Bearer xxx" \
-     "https://api.buildkite.com/v2/organizations/[org]/pipelines/[proj]/builds/[build]/jobs/[job]/env.txt" | sed 's/^/export /')
-   $ buildkite-agent bootstrap --build-path builds`
+    $ eval $(curl -s -H "Authorization: Bearer xxx" \
+       "https://api.buildkite.com/v2/organizations/[org]/pipelines/[proj]/builds/[build]/jobs/[job]/env.txt" | \
+       sed 's/^/export /' \
+     )
+    $ buildkite-agent bootstrap --build-path builds`
 
 type BootstrapConfig struct {
 	Command                      string   `cli:"command"`
@@ -62,6 +63,7 @@ type BootstrapConfig struct {
 	AutomaticArtifactUploadPaths string   `cli:"artifact-upload-paths"`
 	ArtifactUploadDestination    string   `cli:"artifact-upload-destination"`
 	CleanCheckout                bool     `cli:"clean-checkout"`
+	GitCheckoutFlags             string   `cli:"git-checkout-flags"`
 	GitCloneFlags                string   `cli:"git-clone-flags"`
 	GitFetchFlags                string   `cli:"git-fetch-flags"`
 	GitCloneMirrorFlags          string   `cli:"git-clone-mirror-flags"`
@@ -73,12 +75,15 @@ type BootstrapConfig struct {
 	BinPath                      string   `cli:"bin-path" normalize:"filepath"`
 	BuildPath                    string   `cli:"build-path" normalize:"filepath"`
 	HooksPath                    string   `cli:"hooks-path" normalize:"filepath"`
+	AdditionalHooksPaths         []string `cli:"additional-hooks-paths" normalize:"list"`
+	SocketsPath                  string   `cli:"sockets-path" normalize:"filepath"`
 	PluginsPath                  string   `cli:"plugins-path" normalize:"filepath"`
 	CommandEval                  bool     `cli:"command-eval"`
 	PluginsEnabled               bool     `cli:"plugins-enabled"`
 	PluginValidation             bool     `cli:"plugin-validation"`
 	PluginsAlwaysCloneFresh      bool     `cli:"plugins-always-clone-fresh"`
 	LocalHooksEnabled            bool     `cli:"local-hooks-enabled"`
+	StrictSingleHooks            bool     `cli:"strict-single-hooks"`
 	PTY                          bool     `cli:"pty"`
 	LogLevel                     string   `cli:"log-level"`
 	Debug                        bool     `cli:"debug"`
@@ -87,15 +92,22 @@ type BootstrapConfig struct {
 	Phases                       []string `cli:"phases" normalize:"list"`
 	Profile                      string   `cli:"profile"`
 	CancelSignal                 string   `cli:"cancel-signal"`
+	CancelGracePeriod            int      `cli:"cancel-grace-period"`
+	SignalGracePeriodSeconds     int      `cli:"signal-grace-period-seconds"`
 	RedactedVars                 []string `cli:"redacted-vars" normalize:"list"`
 	TracingBackend               string   `cli:"tracing-backend"`
 	TracingServiceName           string   `cli:"tracing-service-name"`
+	TraceContextEncoding         string   `cli:"trace-context-encoding"`
+	NoJobAPI                     bool     `cli:"no-job-api"`
+	DisableWarningsFor           []string `cli:"disable-warnings-for" normalize:"list"`
+	KubernetesExec               bool     `cli:"kubernetes-exec"`
+	KubernetesContainerID        int      `cli:"kubernetes-container-id"`
 }
 
 var BootstrapCommand = cli.Command{
 	Name:        "bootstrap",
 	Usage:       "Run a Buildkite job locally",
-	Description: BootstrapHelpDescription,
+	Description: bootstrapHelpDescription,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:   "command",
@@ -199,6 +211,12 @@ var BootstrapCommand = cli.Command{
 			EnvVar: "BUILDKITE_CLEAN_CHECKOUT",
 		},
 		cli.StringFlag{
+			Name:   "git-checkout-flags",
+			Value:  "-f",
+			Usage:  "Flags to pass to \"git checkout\" command",
+			EnvVar: "BUILDKITE_GIT_CHECKOUT_FLAGS",
+		},
+		cli.StringFlag{
 			Name:   "git-clone-flags",
 			Value:  "-v",
 			Usage:  "Flags to pass to \"git clone\" command",
@@ -225,7 +243,7 @@ var BootstrapCommand = cli.Command{
 		cli.StringSliceFlag{
 			Name:   "git-submodule-clone-config",
 			Value:  &cli.StringSlice{},
-			Usage:  "Comma separated key=value git config pairs applied before git submodule clone commands, e.g. `update --init`. If the config is needed to be applied to all git commands, supply it in a global git config file for the system that the agent runs in instead.",
+			Usage:  "Comma separated key=value git config pairs applied before git submodule clone commands. For example, ′update --init′. If the config is needed to be applied to all git commands, supply it in a global git config file for the system that the agent runs in instead.",
 			EnvVar: "BUILDKITE_GIT_SUBMODULE_CLONE_CONFIG",
 		},
 		cli.StringFlag{
@@ -262,6 +280,18 @@ var BootstrapCommand = cli.Command{
 			Value:  "",
 			Usage:  "Directory where the hook scripts are found",
 			EnvVar: "BUILDKITE_HOOKS_PATH",
+		},
+		cli.StringSliceFlag{
+			Name:   "additional-hooks-paths",
+			Value:  &cli.StringSlice{},
+			Usage:  "Any additional directories to look for agent hooks",
+			EnvVar: "BUILDKITE_ADDITIONAL_HOOKS_PATHS",
+		},
+		cli.StringFlag{
+			Name:   "sockets-path",
+			Value:  defaultSocketsPath(),
+			Usage:  "Directory where the agent will place sockets",
+			EnvVar: "BUILDKITE_SOCKETS_PATH",
 		},
 		cli.StringFlag{
 			Name:   "plugins-path",
@@ -321,17 +351,6 @@ var BootstrapCommand = cli.Command{
 			EnvVar: "BUILDKITE_BOOTSTRAP_PHASES",
 		},
 		cli.StringFlag{
-			Name:   "cancel-signal",
-			Usage:  "The signal to use for cancellation",
-			EnvVar: "BUILDKITE_CANCEL_SIGNAL",
-			Value:  "SIGTERM",
-		},
-		cli.StringSliceFlag{
-			Name:   "redacted-vars",
-			Usage:  "Pattern of environment variable names containing sensitive values",
-			EnvVar: "BUILDKITE_REDACTED_VARS",
-		},
-		cli.StringFlag{
 			Name:   "tracing-backend",
 			Usage:  "The name of the tracing backend to use.",
 			EnvVar: "BUILDKITE_TRACING_BACKEND",
@@ -343,36 +362,40 @@ var BootstrapCommand = cli.Command{
 			EnvVar: "BUILDKITE_TRACING_SERVICE_NAME",
 			Value:  "buildkite-agent",
 		},
+		cli.BoolFlag{
+			Name:   "no-job-api",
+			Usage:  "Disables the Job API, which gives commands in jobs some abilities to introspect and mutate the state of the job.",
+			EnvVar: "BUILDKITE_AGENT_NO_JOB_API",
+		},
+		cli.StringSliceFlag{
+			Name:   "disable-warnings-for",
+			Usage:  "A list of warning IDs to disable",
+			EnvVar: "BUILDKITE_AGENT_DISABLE_WARNINGS_FOR",
+		},
+		cli.IntFlag{
+			Name: "kubernetes-container-id",
+			Usage: "This is intended to be used only by the Buildkite k8s stack " +
+				"(github.com/buildkite/agent-stack-k8s); it sets an ID number " +
+				"used to identify this container within the pod",
+			EnvVar: "BUILDKITE_CONTAINER_ID",
+		},
+		cancelSignalFlag,
+		cancelGracePeriodFlag,
+		signalGracePeriodSecondsFlag,
+
+		// Global flags
 		DebugFlag,
 		LogLevelFlag,
 		ExperimentsFlag,
 		ProfileFlag,
+		RedactedVars,
+		StrictSingleHooksFlag,
+		KubernetesExecFlag,
+		TraceContextEncodingFlag,
 	},
-	Action: func(c *cli.Context) {
-		// The configuration will be loaded into this struct
-		cfg := BootstrapConfig{}
-
-		loader := cliconfig.Loader{CLI: c, Config: &cfg}
-		warnings, err := loader.Load()
-		if err != nil {
-			fmt.Printf("%s", err)
-			os.Exit(1)
-		}
-
-		l := CreateLogger(&cfg)
-
-		// Now that we have a logger, log out the warnings that loading config generated
-		for _, warning := range warnings {
-			l.Warn("%s", warning)
-		}
-
-		// Enable experiments
-		for _, name := range cfg.Experiments {
-			experiments.Enable(name)
-		}
-
-		// Handle profiling flag
-		done := HandleProfileFlag(l, cfg)
+	Action: func(c *cli.Context) error {
+		ctx := context.Background()
+		ctx, cfg, l, _, done := setupLoggerAndConfig[BootstrapConfig](ctx, c)
 		defer done()
 
 		// Turn of PTY support if we're on Windows
@@ -387,29 +410,42 @@ var BootstrapCommand = cli.Command{
 			case "plugin", "checkout", "command":
 				// Valid phase
 			default:
-				l.Fatal("Invalid phase %q", phase)
+				return fmt.Errorf("invalid phase %q", phase)
 			}
 		}
 
 		cancelSig, err := process.ParseSignal(cfg.CancelSignal)
 		if err != nil {
-			l.Fatal("Failed to parse cancel-signal: %v", err)
+			return fmt.Errorf("failed to parse cancel-signal: %w", err)
+		}
+
+		signalGracePeriod, err := signalGracePeriod(cfg.CancelGracePeriod, cfg.SignalGracePeriodSeconds)
+		if err != nil {
+			return err
+		}
+
+		traceContextCodec, err := tracetools.ParseEncoding(cfg.TraceContextEncoding)
+		if err != nil {
+			return fmt.Errorf("while parsing trace context encoding: %v", err)
 		}
 
 		// Configure the bootstraper
-		bootstrap := bootstrap.New(bootstrap.Config{
+		bootstrap := job.New(job.ExecutorConfig{
 			AgentName:                    cfg.AgentName,
 			ArtifactUploadDestination:    cfg.ArtifactUploadDestination,
 			AutomaticArtifactUploadPaths: cfg.AutomaticArtifactUploadPaths,
 			BinPath:                      cfg.BinPath,
 			Branch:                       cfg.Branch,
 			BuildPath:                    cfg.BuildPath,
+			SocketsPath:                  cfg.SocketsPath,
 			CancelSignal:                 cancelSig,
+			SignalGracePeriod:            signalGracePeriod,
 			CleanCheckout:                cfg.CleanCheckout,
 			Command:                      cfg.Command,
 			CommandEval:                  cfg.CommandEval,
 			Commit:                       cfg.Commit,
 			Debug:                        cfg.Debug,
+			GitCheckoutFlags:             cfg.GitCheckoutFlags,
 			GitCleanFlags:                cfg.GitCleanFlags,
 			GitCloneFlags:                cfg.GitCloneFlags,
 			GitCloneMirrorFlags:          cfg.GitCloneMirrorFlags,
@@ -420,6 +456,7 @@ var BootstrapCommand = cli.Command{
 			GitSubmodules:                cfg.GitSubmodules,
 			GitSubmoduleCloneConfig:      cfg.GitSubmoduleCloneConfig,
 			HooksPath:                    cfg.HooksPath,
+			AdditionalHooksPaths:         cfg.AdditionalHooksPaths,
 			JobID:                        cfg.JobID,
 			LocalHooksEnabled:            cfg.LocalHooksEnabled,
 			OrganizationSlug:             cfg.OrganizationSlug,
@@ -439,12 +476,18 @@ var BootstrapCommand = cli.Command{
 			RunInPty:                     runInPty,
 			SSHKeyscan:                   cfg.SSHKeyscan,
 			Shell:                        cfg.Shell,
+			StrictSingleHooks:            cfg.StrictSingleHooks,
 			Tag:                          cfg.Tag,
 			TracingBackend:               cfg.TracingBackend,
 			TracingServiceName:           cfg.TracingServiceName,
+			TraceContextCodec:            traceContextCodec,
+			JobAPI:                       !cfg.NoJobAPI,
+			DisabledWarnings:             cfg.DisableWarningsFor,
+			KubernetesExec:               cfg.KubernetesExec,
+			KubernetesContainerID:        cfg.KubernetesContainerID,
 		})
 
-		ctx, cancel := context.WithCancel(context.Background())
+		cctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
 		signals := make(chan os.Signal, 1)
@@ -468,7 +511,9 @@ var BootstrapCommand = cli.Command{
 			defer signalMu.Unlock()
 
 			// Cancel the bootstrap
-			bootstrap.Cancel()
+			if err := bootstrap.Cancel(); err != nil {
+				l.Debug("Failed to cancel bootstrap: %v", err)
+			}
 
 			// Track the state and signal used
 			cancelled = true
@@ -479,7 +524,7 @@ var BootstrapCommand = cli.Command{
 		}()
 
 		// Run the bootstrap and get the exit code
-		exitCode := bootstrap.Run(ctx)
+		exitCode := bootstrap.Run(cctx)
 
 		signalMu.Lock()
 		defer signalMu.Unlock()
@@ -499,6 +544,6 @@ var BootstrapCommand = cli.Command{
 			}
 		}
 
-		os.Exit(exitCode)
+		return &SilentExitError{code: exitCode}
 	},
 }

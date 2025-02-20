@@ -2,10 +2,10 @@ package plugin
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 
-	"github.com/buildkite/agent/v3/env"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -43,7 +43,8 @@ func TestCreateFromJSON(t *testing.T) {
 				Configuration: map[string]any{},
 			}},
 		},
-		{`[{"https://gitlab.example.com/path/to/repo#main":{}}]`,
+		{
+			`[{"https://gitlab.example.com/path/to/repo#main":{}}]`,
 			[]*Plugin{{
 				Location:      "gitlab.example.com/path/to/repo",
 				Version:       "main",
@@ -51,7 +52,8 @@ func TestCreateFromJSON(t *testing.T) {
 				Configuration: map[string]any{},
 			}},
 		},
-		{`[{"https://gitlab.com/group/team/path/to/repo#main":{}}]`,
+		{
+			`[{"https://gitlab.com/group/team/path/to/repo#main":{}}]`,
 			[]*Plugin{{
 				Location:      "gitlab.com/group/team/path/to/repo",
 				Version:       "main",
@@ -79,10 +81,10 @@ func TestCreateFromJSON(t *testing.T) {
 			}},
 		},
 		{
-			`["github.com/buildkite-plugins/fake-plugin#master"]`,
+			`["github.com/buildkite-plugins/fake-plugin#main"]`,
 			[]*Plugin{{
 				Location:      "github.com/buildkite-plugins/fake-plugin",
-				Version:       "master",
+				Version:       "main",
 				Scheme:        "",
 				Configuration: map[string]any{},
 			}},
@@ -99,7 +101,6 @@ func TestCreateFromJSON(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.jsonText, func(t *testing.T) {
 			t.Parallel()
 
@@ -131,13 +132,12 @@ func TestCreateFromJSONFailsOnParseErrors(t *testing.T) {
 			"JSON structure was not an array",
 		},
 		{
-			`["github.com/buildkite-plugins/ping#master#lololo"]`,
-			"Too many #'s in \"github.com/buildkite-plugins/ping#master#lololo\"",
+			`["github.com/buildkite-plugins/ping#main#lololo"]`,
+			"Too many #'s in \"github.com/buildkite-plugins/ping#main#lololo\"",
 		},
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run("", func(t *testing.T) {
 			t.Parallel()
 
@@ -207,7 +207,6 @@ func TestPluginNameParsedFromLocation(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.location, func(t *testing.T) {
 			t.Parallel()
 			plugin := &Plugin{Location: tc.location}
@@ -225,8 +224,8 @@ func TestIdentifier(t *testing.T) {
 		location, wantID string
 	}{
 		{
-			location: "github.com/buildkite/plugins/docker-compose/beta#master",
-			wantID:   "github-com-buildkite-plugins-docker-compose-beta-master",
+			location: "github.com/buildkite/plugins/docker-compose/beta#main",
+			wantID:   "github-com-buildkite-plugins-docker-compose-beta-main",
 		},
 		{
 			location: "github.com/buildkite/plugins/docker-compose/beta",
@@ -247,7 +246,6 @@ func TestIdentifier(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.location, func(t *testing.T) {
 			t.Parallel()
 			plugin := &Plugin{Location: tc.location}
@@ -307,7 +305,6 @@ func TestRepositoryAndSubdirectory(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.plugin.Label(), func(t *testing.T) {
 			t.Parallel()
 			repo, err := tc.plugin.Repository()
@@ -348,7 +345,6 @@ func TestRespositoryAndSubdirectoryErrors(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.location, func(t *testing.T) {
 			t.Parallel()
 
@@ -371,12 +367,13 @@ func TestConfigurationToEnvironment(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		configJSON string
-		wantEnvMap env.Environment
+		configJSON  string
+		wantEnvMap  map[string]string
+		expectedErr error
 	}{
 		{
 			configJSON: `{ "config-key": 42 }`,
-			wantEnvMap: env.Environment{
+			wantEnvMap: map[string]string{
 				"BUILDKITE_PLUGIN_CONFIGURATION":             `{"config-key":42}`,
 				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_CONFIG_KEY": "42",
 				"BUILDKITE_PLUGIN_NAME":                      "DOCKER_COMPOSE",
@@ -384,7 +381,7 @@ func TestConfigurationToEnvironment(t *testing.T) {
 		},
 		{
 			configJSON: `{ "container": "app", "some-other-setting": "else right here" }`,
-			wantEnvMap: env.Environment{
+			wantEnvMap: map[string]string{
 				"BUILDKITE_PLUGIN_CONFIGURATION":                     `{"container":"app","some-other-setting":"else right here"}`,
 				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_CONTAINER":          "app",
 				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_SOME_OTHER_SETTING": "else right here",
@@ -393,15 +390,43 @@ func TestConfigurationToEnvironment(t *testing.T) {
 		},
 		{
 			configJSON: `{ "and _ with a    - number": 12 }`,
-			wantEnvMap: env.Environment{
-				"BUILDKITE_PLUGIN_CONFIGURATION":                    `{"and _ with a    - number":12}`,
-				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_AND_WITH_A_NUMBER": "12",
-				"BUILDKITE_PLUGIN_NAME":                             "DOCKER_COMPOSE",
+			wantEnvMap: map[string]string{
+				"BUILDKITE_PLUGIN_CONFIGURATION":                           `{"and _ with a    - number":12}`,
+				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_AND_WITH_A_NUMBER":        "12",
+				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_AND___WITH_A______NUMBER": "12",
+				"BUILDKITE_PLUGIN_NAME":                                    "DOCKER_COMPOSE",
 			},
+			expectedErr: (&DeprecatedNameErrors{}).Append(
+				DeprecatedNameError{
+					old: "BUILDKITE_PLUGIN_DOCKER_COMPOSE_AND_WITH_A_NUMBER",
+					new: "BUILDKITE_PLUGIN_DOCKER_COMPOSE_AND___WITH_A______NUMBER",
+				},
+			),
+		},
+		{
+			configJSON: `{ "and _ with a    - number": 12, "A - B": 13 }`,
+			wantEnvMap: map[string]string{
+				"BUILDKITE_PLUGIN_CONFIGURATION":                           `{"A - B":13,"and _ with a    - number":12}`,
+				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_AND_WITH_A_NUMBER":        "12",
+				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_AND___WITH_A______NUMBER": "12",
+				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_A_B":                      "13",
+				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_A___B":                    "13",
+				"BUILDKITE_PLUGIN_NAME":                                    "DOCKER_COMPOSE",
+			},
+			expectedErr: (&DeprecatedNameErrors{}).Append(
+				DeprecatedNameError{
+					old: "BUILDKITE_PLUGIN_DOCKER_COMPOSE_AND_WITH_A_NUMBER",
+					new: "BUILDKITE_PLUGIN_DOCKER_COMPOSE_AND___WITH_A______NUMBER",
+				},
+				DeprecatedNameError{
+					old: "BUILDKITE_PLUGIN_DOCKER_COMPOSE_A_B",
+					new: "BUILDKITE_PLUGIN_DOCKER_COMPOSE_A___B",
+				},
+			),
 		},
 		{
 			configJSON: `{ "bool-true-key": true, "bool-false-key": false }`,
-			wantEnvMap: env.Environment{
+			wantEnvMap: map[string]string{
 				"BUILDKITE_PLUGIN_CONFIGURATION":                 `{"bool-false-key":false,"bool-true-key":true}`,
 				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_BOOL_FALSE_KEY": "false",
 				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_BOOL_TRUE_KEY":  "true",
@@ -410,7 +435,7 @@ func TestConfigurationToEnvironment(t *testing.T) {
 		},
 		{
 			configJSON: `{ "array-key": [ "array-val-1", "array-val-2" ] }`,
-			wantEnvMap: env.Environment{
+			wantEnvMap: map[string]string{
 				"BUILDKITE_PLUGIN_CONFIGURATION":              `{"array-key":["array-val-1","array-val-2"]}`,
 				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_ARRAY_KEY_0": "array-val-1",
 				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_ARRAY_KEY_1": "array-val-2",
@@ -419,7 +444,7 @@ func TestConfigurationToEnvironment(t *testing.T) {
 		},
 		{
 			configJSON: `{ "array-key": [ 42, 43, 44 ] }`,
-			wantEnvMap: env.Environment{
+			wantEnvMap: map[string]string{
 				"BUILDKITE_PLUGIN_CONFIGURATION":              `{"array-key":[42,43,44]}`,
 				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_ARRAY_KEY_0": "42",
 				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_ARRAY_KEY_1": "43",
@@ -429,7 +454,7 @@ func TestConfigurationToEnvironment(t *testing.T) {
 		},
 		{
 			configJSON: `{ "array-key": [ 42, 43, "foo" ] }`,
-			wantEnvMap: env.Environment{
+			wantEnvMap: map[string]string{
 				"BUILDKITE_PLUGIN_CONFIGURATION":              `{"array-key":[42,43,"foo"]}`,
 				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_ARRAY_KEY_0": "42",
 				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_ARRAY_KEY_1": "43",
@@ -439,7 +464,7 @@ func TestConfigurationToEnvironment(t *testing.T) {
 		},
 		{
 			configJSON: `{ "array-key": [ { "subkey": "subval" } ] }`,
-			wantEnvMap: env.Environment{
+			wantEnvMap: map[string]string{
 				"BUILDKITE_PLUGIN_CONFIGURATION":                     `{"array-key":[{"subkey":"subval"}]}`,
 				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_ARRAY_KEY_0_SUBKEY": "subval",
 				"BUILDKITE_PLUGIN_NAME":                              "DOCKER_COMPOSE",
@@ -447,7 +472,7 @@ func TestConfigurationToEnvironment(t *testing.T) {
 		},
 		{
 			configJSON: `{ "array-key": [ { "subkey": [1, 2, "llamas"] } ] }`,
-			wantEnvMap: env.Environment{
+			wantEnvMap: map[string]string{
 				"BUILDKITE_PLUGIN_CONFIGURATION":                       `{"array-key":[{"subkey":[1,2,"llamas"]}]}`,
 				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_ARRAY_KEY_0_SUBKEY_0": "1",
 				"BUILDKITE_PLUGIN_DOCKER_COMPOSE_ARRAY_KEY_0_SUBKEY_1": "2",
@@ -458,33 +483,36 @@ func TestConfigurationToEnvironment(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.configJSON, func(t *testing.T) {
 			t.Parallel()
 			plugin, err := pluginFromConfig(tc.configJSON)
 			if err != nil {
 				t.Fatalf("pluginFromConfig(%q) error = %v", tc.configJSON, err)
 			}
-			envMap, err := plugin.ConfigurationToEnvironment()
-			if err != nil {
-				t.Errorf("plugin.ConfigurationToEnvironment() error = %v", err)
+			env, err := plugin.ConfigurationToEnvironment()
+			if !errors.Is(err, tc.expectedErr) {
+				t.Errorf("plugin.ConfigurationToEnvironment() error got:\n%v\nwant:\n%v", err, tc.expectedErr)
 			}
+			envMap := env.Dump()
 			if diff := cmp.Diff(envMap, tc.wantEnvMap); diff != "" {
 				t.Errorf("plugin.ConfigurationToEnvironment() envMap diff (-got +want)\n%s", diff)
 			}
 		})
 	}
-
 }
 
-func pluginFromConfig(configJson string) (*Plugin, error) {
+func pluginFromConfig(configJSON string) (*Plugin, error) {
 	var config map[string]any
 
-	if err := json.Unmarshal([]byte(configJson), &config); err != nil {
+	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
 		return nil, err
 	}
 
-	jsonString := fmt.Sprintf(`[ { "%s": %s } ]`, "github.com/buildkite-plugins/docker-compose-buildkite-plugin", configJson)
+	jsonString := fmt.Sprintf(
+		`[ { "%s": %s } ]`,
+		"github.com/buildkite-plugins/docker-compose-buildkite-plugin",
+		configJSON,
+	)
 
 	plugins, err := CreateFromJSON(jsonString)
 	if err != nil {
@@ -498,6 +526,8 @@ func pluginFromConfig(configJson string) (*Plugin, error) {
 }
 
 func TestConfigurationToEnvironment_DuplicatePlugin(t *testing.T) {
+	t.Parallel()
+
 	// Ensure on duplicate plugin definition, each plugin gets its respective config exported
 	plugins, err := duplicatePluginFromConfig(`{ "config-key": 41 }`, `{ "second-ref-key": 42 }`)
 	if err != nil {
@@ -508,12 +538,12 @@ func TestConfigurationToEnvironment_DuplicatePlugin(t *testing.T) {
 	if err != nil {
 		t.Errorf("plugins[0].ConfigurationToEnvironment() error = %v", err)
 	}
-	wantEnv1 := env.Environment{
+	wantEnv1 := map[string]string{
 		"BUILDKITE_PLUGIN_CONFIGURATION":             `{"config-key":41}`,
 		"BUILDKITE_PLUGIN_DOCKER_COMPOSE_CONFIG_KEY": "41",
 		"BUILDKITE_PLUGIN_NAME":                      "DOCKER_COMPOSE",
 	}
-	if diff := cmp.Diff(envMap1, wantEnv1); diff != "" {
+	if diff := cmp.Diff(envMap1.Dump(), wantEnv1); diff != "" {
 		t.Errorf("plugins[0].ConfigurationToEnvironment() envMap diff (-got +want)\n%s", diff)
 	}
 
@@ -521,12 +551,14 @@ func TestConfigurationToEnvironment_DuplicatePlugin(t *testing.T) {
 	if err != nil {
 		t.Errorf("plugins[1].ConfigurationToEnvironment() error = %v", err)
 	}
-	wantEnv2 := env.Environment{
+
+	wantEnv2 := map[string]string{
 		"BUILDKITE_PLUGIN_CONFIGURATION":                 `{"second-ref-key":42}`,
 		"BUILDKITE_PLUGIN_DOCKER_COMPOSE_SECOND_REF_KEY": "42",
 		"BUILDKITE_PLUGIN_NAME":                          "DOCKER_COMPOSE",
 	}
-	if diff := cmp.Diff(envMap2, wantEnv2); diff != "" {
+
+	if diff := cmp.Diff(envMap2.Dump(), wantEnv2); diff != "" {
 		t.Errorf("plugins[0].ConfigurationToEnvironment() envMap diff (-got +want)\n%s", diff)
 	}
 }
@@ -541,7 +573,13 @@ func duplicatePluginFromConfig(cfgJSON1, cfgJSON2 string) ([]*Plugin, error) {
 		return nil, err
 	}
 
-	jsonString := fmt.Sprintf(`[ { "%s": %s }, { "%s": %s } ]`, "github.com/buildkite-plugins/docker-compose-buildkite-plugin", cfgJSON1, "github.com/buildkite-plugins/docker-compose-buildkite-plugin", cfgJSON2)
+	jsonString := fmt.Sprintf(
+		`[ { "%s": %s }, { "%s": %s } ]`,
+		"github.com/buildkite-plugins/docker-compose-buildkite-plugin",
+		cfgJSON1,
+		"github.com/buildkite-plugins/docker-compose-buildkite-plugin",
+		cfgJSON2,
+	)
 
 	plugins, err := CreateFromJSON(jsonString)
 	if err != nil {

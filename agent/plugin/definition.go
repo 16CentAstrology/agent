@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,9 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/buildkite/agent/v3/yamltojson"
-	"github.com/buildkite/yaml"
+	"github.com/buildkite/go-pipeline/ordered"
 	"github.com/qri-io/jsonschema"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -27,28 +28,27 @@ var (
 // Definition defines the contents of the plugin.{yml,yaml,json} file that
 // each plugin has.
 type Definition struct {
-	Name          string                 `json:"name"`
-	Requirements  []string               `json:"requirements"`
-	Configuration *jsonschema.RootSchema `json:"configuration"`
+	Name          string             `json:"name"`
+	Requirements  []string           `json:"requirements"`
+	Configuration *jsonschema.Schema `json:"configuration"`
 }
 
 // ParseDefinition parses either YAML or JSON bytes into a Definition.
 func ParseDefinition(b []byte) (*Definition, error) {
-	var parsed yaml.MapSlice
-
-	if err := yaml.Unmarshal(b, &parsed); err != nil {
+	parsed := ordered.NewMap[string, any](0)
+	if err := yaml.Unmarshal(b, parsed); err != nil {
 		return nil, err
 	}
 
 	// Marshal the whole lot back into json which will let the jsonschema library
 	// parse the schema into and object tree 💃🏼
-	jsonBytes, err := yamltojson.MarshalMapSliceJSON(parsed)
+	remarshaled, err := json.Marshal(parsed)
 	if err != nil {
 		return nil, err
 	}
 
 	var def Definition
-	if err := json.Unmarshal(jsonBytes, &def); err != nil {
+	if err := json.Unmarshal(remarshaled, &def); err != nil {
 		return nil, err
 	}
 
@@ -95,7 +95,7 @@ type Validator struct {
 
 // Validate checks the plugin definition for errors, including missing commands
 // from $PATH and invalid configuration under the definition's JSON Schema.
-func (v Validator) Validate(def *Definition, config map[string]any) ValidateResult {
+func (v Validator) Validate(ctx context.Context, def *Definition, config map[string]any) ValidateResult {
 	var result ValidateResult
 
 	configJSON, err := json.Marshal(config)
@@ -121,7 +121,7 @@ func (v Validator) Validate(def *Definition, config map[string]any) ValidateResu
 
 	// validate that the config matches the json schema we have
 	if def.Configuration != nil {
-		valErrors, err := def.Configuration.ValidateBytes(configJSON)
+		valErrors, err := def.Configuration.ValidateBytes(ctx, configJSON)
 		if err != nil {
 			result.errors = append(result.errors, err)
 		}

@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
+	"io"
+	"math/rand/v2"
 	"net/http"
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/buildkite/agent/v3/api"
+	"github.com/buildkite/agent/v3/core"
 	"github.com/buildkite/agent/v3/logger"
 	"github.com/buildkite/agent/v3/metrics"
 	"github.com/buildkite/agent/v3/process"
@@ -28,11 +29,18 @@ type AgentWorkerConfig struct {
 	// What signal to use for worker cancellation
 	CancelSignal process.Signal
 
+	// Time wait between sending the CancelSignal and SIGKILL to the process
+	// groups that the executor starts
+	SignalGracePeriod time.Duration
+
 	// The index of this agent worker
 	SpawnIndex int
 
 	// The configuration of the agent from the CLI
 	AgentConfiguration AgentConfiguration
+
+	// Stdout of the parent agent process. Used for job log stdout writing arg, for simpler containerized log collection.
+	AgentStdout io.Writer
 }
 
 type agentStats struct {
@@ -50,6 +58,9 @@ type AgentWorker struct {
 
 	// The API Client used when this agent is communicating with the API
 	apiClient APIClient
+
+	// The core Client is used to drive some APIClient methods
+	client *core.Client
 
 	// The logger instance to use
 	logger logger.Logger
@@ -76,21 +87,57 @@ type AgentWorker struct {
 	cancelSig process.Signal
 
 	// Stop controls
+	stopMutex sync.Mutex
 	stop      chan struct{}
 	stopping  bool
-	stopMutex sync.Mutex
 
 	// The index of this agent worker
 	spawnIndex int
 
 	// When this worker runs a job, we'll store an instance of the
 	// JobRunner here
-	jobRunner *JobRunner
+	jobRunner jobRunner
 
-	// retrySleepFunc is useful for testing retry loops fast
-	// Hopefully this can be replaced with a global setting for tests in future:
-	// https://github.com/buildkite/roko/issues/2
-	retrySleepFunc func(time.Duration)
+	// Stdout of the parent agent process. Used for job log stdout writing arg, for simpler containerized log collection.
+	agentStdout io.Writer
+
+	// Are we doing something right now?
+	state        agentWorkerState
+	currentJobID string
+	stateMtx     sync.Mutex
+}
+
+type agentWorkerState string
+
+const (
+	agentWorkerStateIdle agentWorkerState = "idle"
+	agentWorkerStateBusy agentWorkerState = "busy"
+)
+
+func (a *AgentWorker) setBusy(jobID string) {
+	a.stateMtx.Lock()
+	defer a.stateMtx.Unlock()
+	a.state = agentWorkerStateBusy
+	a.currentJobID = jobID
+}
+
+func (a *AgentWorker) setIdle() {
+	a.stateMtx.Lock()
+	defer a.stateMtx.Unlock()
+	a.state = agentWorkerStateIdle
+	a.currentJobID = ""
+}
+
+func (a *AgentWorker) getState() agentWorkerState {
+	a.stateMtx.Lock()
+	defer a.stateMtx.Unlock()
+	return a.state
+}
+
+func (a *AgentWorker) getCurrentJobID() string {
+	a.stateMtx.Lock()
+	defer a.stateMtx.Unlock()
+	return a.currentJobID
 }
 
 type errUnrecoverable struct {
@@ -119,18 +166,24 @@ func (e *errUnrecoverable) Unwrap() error {
 
 // Creates the agent worker and initializes its API Client
 func NewAgentWorker(l logger.Logger, a *api.AgentRegisterResponse, m *metrics.Collector, apiClient APIClient, c AgentWorkerConfig) *AgentWorker {
+	apiClient = apiClient.FromAgentRegisterResponse(a)
 	return &AgentWorker{
-		logger:             l,
-		agent:              a,
-		metricsCollector:   m,
-		apiClient:          apiClient.FromAgentRegisterResponse(a),
+		logger:           l,
+		agent:            a,
+		metricsCollector: m,
+		apiClient:        apiClient,
+		client: &core.Client{
+			APIClient: apiClient,
+			Logger:    l,
+		},
 		debug:              c.Debug,
 		debugHTTP:          c.DebugHTTP,
 		agentConfiguration: c.AgentConfiguration,
 		stop:               make(chan struct{}),
 		cancelSig:          c.CancelSignal,
 		spawnIndex:         c.SpawnIndex,
-		retrySleepFunc:     time.Sleep, // https://github.com/buildkite/roko/issues/2
+		agentStdout:        c.AgentStdout,
+		state:              agentWorkerStateIdle,
 	}
 }
 
@@ -169,23 +222,6 @@ func (a *AgentWorker) Start(ctx context.Context, idleMonitor *IdleMonitor) error
 		return err
 	}
 	defer a.metricsCollector.Stop()
-
-	// Register our worker specific health check handler
-	http.HandleFunc("/agent/"+strconv.Itoa(a.spawnIndex), func(w http.ResponseWriter, r *http.Request) {
-		a.stats.Lock()
-		defer a.stats.Unlock()
-
-		if a.stats.lastHeartbeatError != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprintf(w, "ERROR: last heartbeat failed: %v. last successful was %v ago", a.stats.lastHeartbeatError, time.Since(a.stats.lastHeartbeat))
-		} else {
-			if a.stats.lastHeartbeat.IsZero() {
-				fmt.Fprintf(w, "OK: no heartbeat yet")
-			} else {
-				fmt.Fprintf(w, "OK: last heartbeat successful %v ago", time.Since(a.stats.lastHeartbeat))
-			}
-		}
-	})
 
 	// Use a context to run heartbeats for as long as the ping loop or job runs
 	heartbeatCtx, cancel := context.WithCancel(ctx)
@@ -256,81 +292,102 @@ func (a *AgentWorker) runPingLoop(ctx context.Context, idleMonitor *IdleMonitor)
 	pingTicker := time.NewTicker(pingInterval)
 	defer pingTicker.Stop()
 
+	first := make(chan struct{}, 1)
+	first <- struct{}{}
+
 	lastActionTime := time.Now()
 	a.logger.Info("Waiting for work...")
 
 	// Continue this loop until the closing of the stop channel signals termination
 	for {
-		if !a.stopping {
-			setStat("📡 Pinging Buildkite for work")
-			job, err := a.Ping(ctx)
-			if err != nil {
-				if errors.Is(err, &errUnrecoverable{}) {
-					a.logger.Error("%v", err)
-				} else {
-					a.logger.Warn("%v", err)
-				}
-			} else if job != nil {
-				// Let other agents know this agent is now busy and
-				// not to idle terminate
-				idleMonitor.MarkBusy(a.agent.UUID)
-				setStat("💼 Accepting job")
-
-				// Runs the job, only errors if something goes wrong
-				if runErr := a.AcceptAndRunJob(ctx, job); runErr != nil {
-					a.logger.Error("%v", runErr)
-				} else {
-					if a.agentConfiguration.DisconnectAfterJob {
-						a.logger.Info("Job finished. Disconnecting...")
-						return nil
-					}
-					lastActionTime = time.Now()
-
-					// Observation: jobs are rarely the last within a pipeline,
-					// thus if this worker just completed a job,
-					// there is likely another immediately available.
-					// Skip waiting for the ping interval until
-					// a ping without a job has occurred,
-					// but in exchange, ensure the next ping must wait a full
-					// pingInterval to avoid too much server load.
-
-					pingTicker.Reset(pingInterval)
-
-					continue
-				}
-				setStat("✅ Finished job")
-			}
-
-			// Handle disconnect after idle timeout (and deprecated disconnect-after-job-timeout)
-			if a.agentConfiguration.DisconnectAfterIdleTimeout > 0 {
-				idleDeadline := lastActionTime.Add(time.Second *
-					time.Duration(a.agentConfiguration.DisconnectAfterIdleTimeout))
-
-				if time.Now().After(idleDeadline) {
-					// Let other agents know this agent is now idle and termination
-					// is possible
-					idleMonitor.MarkIdle(a.agent.UUID)
-
-					// But only terminate if everyone else is also idle
-					if idleMonitor.Idle() {
-						a.logger.Info("All agents have been idle for %d seconds. Disconnecting...",
-							a.agentConfiguration.DisconnectAfterIdleTimeout)
-						return nil
-					} else {
-						a.logger.Debug("Agent has been idle for %.f seconds, but other agents haven't",
-							time.Since(lastActionTime).Seconds())
-					}
-				}
-			}
-		}
-
-		setStat("😴 Sleeping for a bit")
-
+		setStat("😴 Waiting until next ping interval tick")
 		select {
+		case <-first:
+			// continue below
 		case <-pingTicker.C:
-			continue
+			// continue below
 		case <-a.stop:
 			return nil
+		}
+
+		// Within the interval, wait a random amount of time to avoid
+		// spontaneous synchronisation across agents.
+		jitter := rand.N(pingInterval)
+		setStat(fmt.Sprintf("🫨 Jittering for %v", jitter))
+		select {
+		case <-time.After(jitter):
+			// continue below
+		case <-a.stop:
+			return nil
+		}
+
+		a.stopMutex.Lock()
+		stopping := a.stopping
+		a.stopMutex.Unlock()
+		if stopping {
+			return nil
+		}
+
+		setStat("📡 Pinging Buildkite for work")
+		job, err := a.Ping(ctx)
+		if err != nil {
+			if errors.Is(err, &errUnrecoverable{}) {
+				a.logger.Error("%v", err)
+			} else {
+				a.logger.Warn("%v", err)
+			}
+		} else if job != nil {
+			// Let other agents know this agent is now busy and
+			// not to idle terminate
+			idleMonitor.MarkBusy(a.agent.UUID)
+
+			setStat("💼 Accepting job")
+
+			// Runs the job, only errors if something goes wrong
+			if runErr := a.AcceptAndRunJob(ctx, job); runErr != nil {
+				a.logger.Error("%v", runErr)
+			} else {
+				if a.agentConfiguration.DisconnectAfterJob {
+					a.logger.Info("Job finished. Disconnecting...")
+					return nil
+				}
+				lastActionTime = time.Now()
+
+				// Observation: jobs are rarely the last within a pipeline,
+				// thus if this worker just completed a job,
+				// there is likely another immediately available.
+				// Skip waiting for the ping interval until
+				// a ping without a job has occurred,
+				// but in exchange, ensure the next ping must wait a full
+				// pingInterval to avoid too much server load.
+
+				pingTicker.Reset(pingInterval)
+
+				continue
+			}
+			setStat("✅ Finished job")
+		}
+
+		// Handle disconnect after idle timeout (and deprecated disconnect-after-job-timeout)
+		if a.agentConfiguration.DisconnectAfterIdleTimeout > 0 {
+			idleDeadline := lastActionTime.Add(time.Second *
+				time.Duration(a.agentConfiguration.DisconnectAfterIdleTimeout))
+
+			if time.Now().After(idleDeadline) {
+				// Let other agents know this agent is now idle and termination
+				// is possible
+				idleMonitor.MarkIdle(a.agent.UUID)
+
+				// But only terminate if everyone else is also idle
+				if idleMonitor.Idle() {
+					a.logger.Info("All agents have been idle for %d seconds. Disconnecting...",
+						a.agentConfiguration.DisconnectAfterIdleTimeout)
+					return nil
+				} else {
+					a.logger.Debug("Agent has been idle for %.f seconds, but other agents haven't",
+						time.Since(lastActionTime).Seconds())
+				}
+			}
 		}
 	}
 }
@@ -386,45 +443,34 @@ func (a *AgentWorker) Stop(graceful bool) {
 	a.stopping = true
 }
 
-// Connects the agent to the Buildkite Agent API, retrying up to 30 times if it
+// Connects the agent to the Buildkite Agent API, retrying up to 10 times if it
 // fails.
 func (a *AgentWorker) Connect(ctx context.Context) error {
-	a.logger.Info("Connecting to Buildkite...")
-
-	return roko.NewRetrier(
-		roko.WithMaxAttempts(10),
-		roko.WithStrategy(roko.Constant(5*time.Second)),
-	).DoWithContext(ctx, func(r *roko.Retrier) error {
-		_, err := a.apiClient.Connect(ctx)
-		if err != nil {
-			a.logger.Warn("%s (%s)", err, r)
-		}
-		return err
-	})
+	return a.client.Connect(ctx)
 }
 
 // Performs a heatbeat
 func (a *AgentWorker) Heartbeat(ctx context.Context) error {
-	var beat *api.Heartbeat
 
 	// Retry the heartbeat a few times
-	err := roko.NewRetrier(
+	r := roko.NewRetrier(
 		roko.WithMaxAttempts(10),
 		roko.WithStrategy(roko.Constant(5*time.Second)),
-	).DoWithContext(ctx, func(r *roko.Retrier) error {
+	)
+
+	beat, err := roko.DoFunc(ctx, r, func(r *roko.Retrier) (*api.Heartbeat, error) {
 		b, resp, err := a.apiClient.Heartbeat(ctx)
 		if err != nil {
 			if resp != nil && !api.IsRetryableStatus(resp) {
 				a.Stop(false)
 				r.Break()
-				return &errUnrecoverable{action: "Heartbeat", response: resp, err: err}
+				return nil, &errUnrecoverable{action: "Heartbeat", response: resp, err: err}
 			}
 
 			a.logger.Warn("%s (%s)", err, r)
-			return err
+			return nil, err
 		}
-		beat = b
-		return nil
+		return b, nil
 	})
 
 	a.stats.Lock()
@@ -481,9 +527,9 @@ func (a *AgentWorker) Ping(ctx context.Context) (*api.Job, error) {
 		// If a ping fails, we don't really care, because it'll
 		// ping again after the interval.
 		if a.stats.lastPing.IsZero() {
-			return nil, fmt.Errorf("Failed to ping: %v (No successful ping yet)", pingErr)
+			return nil, fmt.Errorf("Failed to ping: %w (No successful ping yet)", pingErr)
 		} else {
-			return nil, fmt.Errorf("Failed to ping: %v (Last successful was %v ago)", pingErr, time.Since(a.stats.lastPing))
+			return nil, fmt.Errorf("Failed to ping: %w (Last successful was %v ago)", pingErr, time.Since(a.stats.lastPing))
 		}
 	}
 
@@ -522,76 +568,19 @@ func (a *AgentWorker) Ping(ctx context.Context) (*api.Job, error) {
 // state. If the job is in an unassignable state, it will return an error immediately.
 // Otherwise, it will retry every 3s for 30 s. The whole operation will timeout after 5 min.
 func (a *AgentWorker) AcquireAndRunJob(ctx context.Context, jobId string) error {
-	a.logger.Info("Attempting to acquire job %s...", jobId)
+	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		<-a.stop
+		cancel()
+	}()
 
-	// Timeout the context to prevent the exponentital backoff from growing too
-	// large if the job is in the waiting state.
-	//
-	// If there were no delays or jitter, the attempts would happen at t = 0, 1, 2, 4, ..., 128s
-	// after the initial one. Therefore, there are 9 attempts taking at least 255s. If the jitter
-	// always hit the max of 1s, then another 8s is added to that. This is still comfortably within
-	// the timeout of 270s, and the bound seems tight enough so that the agent is not wasting time
-	// waiting for a retry that will never happen.
-	ctx, cancel := context.WithTimeout(ctx, 270*time.Second)
-	defer cancel()
-
-	// Acquire the job using the ID we were provided. We'll retry as best we can on non 422 error.
-	// Except for 423 errors, in which we exponentially back off under the direction of the API
-	// setting the Retry-After header
-	var acquiredJob *api.Job
-	err := roko.NewRetrier(
-		roko.WithMaxAttempts(10),
-		roko.WithStrategy(roko.Constant(3*time.Second)),
-		roko.WithSleepFunc(a.retrySleepFunc),
-	).DoWithContext(ctx, func(r *roko.Retrier) error {
-		// If this agent has been asked to stop, don't even bother
-		// doing any retry checks and just bail.
-		if a.stopping {
-			r.Break()
-		}
-
-		var err error
-		var response *api.Response
-
-		acquiredJob, response, err = a.apiClient.AcquireJob(
-			ctx, jobId,
-			api.Header{Name: "X-Buildkite-Lock-Acquire-Job", Value: "1"},
-			api.Header{Name: "X-Buildkite-Backoff-Sequence", Value: fmt.Sprintf("%d", r.AttemptCount())},
-		)
-		if err != nil {
-			if response != nil {
-				switch response.StatusCode {
-				case http.StatusUnprocessableEntity:
-					// If the API returns with a 422, that means that we
-					// successfully *tried* to acquire the job, but
-					// Buildkite rejected the finish for some reason.
-					a.logger.Warn("Buildkite rejected the call to acquire the job (%s)", err)
-					r.Break()
-				case http.StatusLocked:
-					// If the API returns with a 423, the job is in the waiting state
-					a.logger.Warn("The job is waiting for a dependency (%s)", err)
-					duration, errParseDuration := time.ParseDuration(response.Header.Get("Retry-After") + "s")
-					if errParseDuration != nil {
-						duration = time.Second + time.Duration(rand.Int63n(int64(time.Second)))
-					}
-					r.SetNextInterval(duration)
-					return err
-				}
-			}
-			a.logger.Warn("%s (%s)", err, r)
-			return err
-		}
-
-		return nil
-	})
-
-	// If `acquiredJob` is nil, then the job was never acquired
-	if acquiredJob == nil {
-		return fmt.Errorf("Failed to acquire job: %v", err)
+	job, err := a.client.AcquireJob(ctx, jobId)
+	if err != nil {
+		return fmt.Errorf("failed to acquire job: %w", err)
 	}
 
 	// Now that we've acquired the job, let's run it
-	return a.RunJob(ctx, acquiredJob)
+	return a.RunJob(ctx, job)
 }
 
 // Accepts a job and runs it, only returns an error if something goes wrong
@@ -601,13 +590,13 @@ func (a *AgentWorker) AcceptAndRunJob(ctx context.Context, job *api.Job) error {
 	// Accept the job. We'll retry on connection related issues, but if
 	// Buildkite returns a 422 or 500 for example, we'll just bail out,
 	// re-ping, and try the whole process again.
-	var accepted *api.Job
-	err := roko.NewRetrier(
+	r := roko.NewRetrier(
 		roko.WithMaxAttempts(30),
 		roko.WithStrategy(roko.Constant(5*time.Second)),
-	).DoWithContext(ctx, func(r *roko.Retrier) error {
-		var err error
-		accepted, _, err = a.apiClient.AcceptJob(ctx, job)
+	)
+
+	accepted, err := roko.DoFunc(ctx, r, func(r *roko.Retrier) (*api.Job, error) {
+		accepted, _, err := a.apiClient.AcceptJob(ctx, job)
 		if err != nil {
 			if api.IsRetryableError(err) {
 				a.logger.Warn("%s (%s)", err, r)
@@ -616,13 +605,12 @@ func (a *AgentWorker) AcceptAndRunJob(ctx context.Context, job *api.Job) error {
 				r.Break()
 			}
 		}
-
-		return err
+		return accepted, err
 	})
 
 	// If `accepted` is nil, then the job was never accepted
 	if accepted == nil {
-		return fmt.Errorf("Failed to accept job: %v", err)
+		return fmt.Errorf("Failed to accept job: %w", err)
 	}
 
 	// Now that we've accepted the job, let's run it
@@ -630,6 +618,9 @@ func (a *AgentWorker) AcceptAndRunJob(ctx context.Context, job *api.Job) error {
 }
 
 func (a *AgentWorker) RunJob(ctx context.Context, acceptResponse *api.Job) error {
+	a.setBusy(acceptResponse.ID)
+	defer a.setIdle()
+
 	jobMetricsScope := a.metrics.With(metrics.Tags{
 		"pipeline": acceptResponse.Env["BUILDKITE_PIPELINE_SLUG"],
 		"org":      acceptResponse.Env["BUILDKITE_ORGANIZATION_SLUG"],
@@ -639,14 +630,20 @@ func (a *AgentWorker) RunJob(ctx context.Context, acceptResponse *api.Job) error
 	})
 
 	// Now that we've got a job to do, we can start it.
-	jr, err := NewJobRunner(a.logger, jobMetricsScope, a.agent, acceptResponse, a.apiClient, JobRunnerConfig{
+	jr, err := NewJobRunner(ctx, a.logger, a.apiClient, JobRunnerConfig{
+		Job:                acceptResponse,
+		JWKS:               a.agentConfiguration.VerificationJWKS,
 		Debug:              a.debug,
 		DebugHTTP:          a.debugHTTP,
 		CancelSignal:       a.cancelSig,
+		MetricsScope:       jobMetricsScope,
+		JobStatusInterval:  time.Duration(a.agent.JobStatusInterval) * time.Second,
 		AgentConfiguration: a.agentConfiguration,
+		AgentStdout:        a.agentStdout,
+		KubernetesExec:     a.agentConfiguration.KubernetesExec,
 	})
 	if err != nil {
-		return fmt.Errorf("Failed to initialize job: %v", err)
+		return fmt.Errorf("Failed to initialize job: %w", err)
 	}
 	a.jobRunner = jr
 	defer func() {
@@ -656,7 +653,7 @@ func (a *AgentWorker) RunJob(ctx context.Context, acceptResponse *api.Job) error
 
 	// Start running the job
 	if err := jr.Run(ctx); err != nil {
-		return fmt.Errorf("Failed to run job: %v", err)
+		return fmt.Errorf("Failed to run job: %w", err)
 	}
 
 	return nil
@@ -666,32 +663,37 @@ func (a *AgentWorker) RunJob(ctx context.Context, acceptResponse *api.Job) error
 // permanently disconnecting. Don't spend long retrying, because we want to
 // disconnect as fast as possible.
 func (a *AgentWorker) Disconnect(ctx context.Context) error {
-	a.logger.Info("Disconnecting...")
-	err := roko.NewRetrier(
-		roko.WithMaxAttempts(4),
-		roko.WithStrategy(roko.Constant(1*time.Second)),
-		roko.WithSleepFunc(a.retrySleepFunc),
-	).DoWithContext(ctx, func(r *roko.Retrier) error {
-		if _, err := a.apiClient.Disconnect(ctx); err != nil {
-			a.logger.Warn("%s (%s)", err, r) // e.g. POST https://...: 500 (Attempt 0/4 Retrying in ..)
-			return err
-		}
-		return nil
-	})
-
-	if err != nil {
-		// none of the retries worked
-		a.logger.Warn(
-			"There was an error sending the disconnect API call to Buildkite. "+
-				"If this agent still appears online, you may have to manually stop it (%s)",
-			err,
-		)
-		return err
-	}
-	a.logger.Info("Disconnected")
-	return nil
+	return a.client.Disconnect(ctx)
 }
 
+func (a *AgentWorker) healthHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		a.stats.Lock()
+		defer a.stats.Unlock()
+
+		if a.stats.lastHeartbeatError != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(w, "ERROR: last heartbeat failed: %v. last successful was %v ago", a.stats.lastHeartbeatError, time.Since(a.stats.lastHeartbeat))
+		} else {
+			if a.stats.lastHeartbeat.IsZero() {
+				fmt.Fprintf(w, "OK: no heartbeat yet")
+			} else {
+				fmt.Fprintf(w, "OK: last heartbeat successful %v ago", time.Since(a.stats.lastHeartbeat))
+			}
+		}
+	}
+}
+
+// This monitor has a 3rd implicit state we will call "initializing" that all agents start in
+// Agents can transition to busy and/or idle but always start in the "initializing" state
+/*
+//                -> Busy
+//              /     ^
+// Initializing       |
+//              \     v
+//                -> Idle
+*/
+// This (intentionally?) ensures the DisconnectAfterIdleTimeout doesn't fire before agents have had a chance to run a job
 type IdleMonitor struct {
 	sync.Mutex
 	totalAgents int
